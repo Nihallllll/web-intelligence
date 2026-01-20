@@ -27,9 +27,9 @@ def crawl_url(url : str , timeout=10):
     except Exception as e:
         return CrawlObject(
         url=url,
-        html=response.text,
+        html="",
         success=False,
-        status_code=response.status_code,
+        status_code=0,
         crawled_at=datetime.now(),
         error=str(e)
         )
