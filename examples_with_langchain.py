@@ -252,14 +252,14 @@ def example_chatbot_class():
     # Index some URLs
     urls = [
         "https://www.python.org/about/",
-        "https://en.wikipedia.org/wiki/Python_(programming_language)",
+        "https://developers.google.com/merchant/ucp",
     ]
     chatbot.index_urls(urls)
     
     # Ask questions
     questions = [
         "What is Python?",
-        "Who createds it?",
+        "what is ucp?",
         "What are its key features?"
     ]
     
