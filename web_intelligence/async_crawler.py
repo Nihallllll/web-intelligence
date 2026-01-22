@@ -117,3 +117,5 @@ def crawl_urls_sync(urls: List[str], max_concurrent: int = 10, timeout: int = 15
         >>> results = crawl_urls_sync(urls)  # Simple! No await needed!
     """
     return asyncio.run(crawl_urls_batch(urls, max_concurrent, timeout))
+
+

@@ -1,10 +1,10 @@
 """Test indexing Wikipedia specifically"""
 
 from web_intelligence import FastPipeline
+from langchain_google_genai import ChatGoogleGenerativeAI
+pipeline = FastPipeline()  # Disable cache to force fresh crawl
 
-pipeline = FastPipeline(cache_enabled=False, use_gpu=None)  # Disable cache to force fresh crawl
-
-url = "https://en.wikipedia.org/wiki/Python_(programming_language)"
+url = "https://www.britannica.com/topic/astrology"
 print(f"Indexing: {url}")
 
 result = pipeline.index_url(url)
@@ -16,8 +16,8 @@ else:
     print(f"✗ Failed: {result.get('error', 'Unknown error')}")
 
 # Search for creator
-print("\nSearching for 'who created python'...")
-results = pipeline.search("who created python guido", limit=5)
+print("\nSearching for 'who is nostrademus'...")
+results = pipeline.search("who is nostradamous", limit=5)
 
 for i, r in enumerate(results, 1):
     print(f"\n{i}. {r['text'][:200]}...")
