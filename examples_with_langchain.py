@@ -5,7 +5,7 @@ Examples of using Web Intelligence with LangChain for RAG (Retrieval-Augmented G
 from langchain_google_genai import ChatGoogleGenerativeAI
 from web_intelligence import FastPipeline
 from dotenv import load_dotenv
-
+from litellm import completion
 load_dotenv()
 
 # Initialize components
@@ -24,13 +24,13 @@ def example_simple_rag():
     print("="*60)
     
     # Index a webpage
-    url = "https://www.python.org/about/"
+    url = "https://en.wikipedia.org/wiki/Nostradamus"
     print(f"\nIndexing: {url}")
     result = pipeline.index_url(url)
     print(f"✓ Indexed: {result['title']}, Chunks: {result['chunks_count']}")
     
     # Ask a question
-    query = "What is Python used for?"
+    query = "who is nostradamus and tell me his 5 predictions "
     print(f"\nQuestion: {query}")
     
     # Search indexed content
@@ -49,8 +49,12 @@ Question: {query}
 
 Answer:"""
     
-    response = llm.invoke(prompt)
-    print(f"\nAnswer: {response.content}")
+    # response = llm.invoke(prompt)
+    response = completion(
+        model="groq/openai/gpt-oss-120b",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    print(f"\nAnswer: {response.choices[0].message.content}")
 
 
 # Example 2: Multi-URL RAG - Index multiple sources
@@ -321,8 +325,8 @@ if __name__ == "__main__":
     
     # Uncomment the examples you want to run:
     
-   #  example_simple_rag()
+    example_simple_rag()
     # example_multi_source_rag()
     #example_conversational_rag()
-    example_chatbot_class()
+    # example_chatbot_class()
     # example_research_assistant()

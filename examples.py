@@ -1,131 +1,203 @@
 """
-Simple usage examples for Web Intelligence library
+Two main functions for web data extraction using our crawler:
+1. extract_url_data() - Crawls a URL and returns raw extracted content
+2. get_cleaned_data() - Retrieves indexed/cleaned data from vector store
 """
 
-# Example 1: Quick Start - Index a single URL
-def example_quick_start():
-    from src.optimized_pipeline import FastPipeline
-    
-    # Initialize (auto-detects GPU)
-    pipeline = FastPipeline()
-    
-    # Index a URL
-    result = pipeline.index_url("https://example.com")
-    
-    print(f"✓ Indexed: {result['title']}")
-    print(f"  Chunks: {result['chunks_count']}")
-    
-
-# Example 2: Batch Indexing - Multiple URLs at once (FAST!)
-def example_batch_indexing():
-    from src.optimized_pipeline import FastPipeline
-    
-    pipeline = FastPipeline(cache_enabled=True)
-    
-    # Index multiple URLs concurrently
-    urls = [
-        "https://python.org",
-        "https://github.com",
-        "https://stackoverflow.com"
-    ]
-    
-    results = pipeline.index_batch(urls)
-    
-    for r in results:
-        if r['success']:
-            print(f"✓ {r['url']}: {r['chunks_count']} chunks")
-        else:
-            print(f"✗ {r['url']}: {r['error']}")
+from web_intelligence.crawler import crawl_url
+from web_intelligence.extractor import extract_content
+from web_intelligence import FastPipeline
 
 
-# Example 3: Search indexed content
-def example_search():
-    from src.optimized_pipeline import FastPipeline
+def extract_url_data(url):
+    """
+    Crawl a URL and extract raw content using our crawler.
     
-    pipeline = FastPipeline()
+    Args:
+        url: The URL to crawl and extract
+        
+    Returns:
+        dict with:
+            - success: bool
+            - url: str
+            - title: str
+            - text: str (raw extracted text)
+            - word_count: int
+            - html_length: int
+            - status_code: int
+            - error: str (if failed)
+    """
+    print(f"Crawling {url}...")
     
-    # Index some content first
-    pipeline.index_url("https://example.com")
+    # Use our crawler with proper headers
+    crawl_result = crawl_url(url)
     
-    # Search
-    results = pipeline.search("python programming", limit=5)
+    if not crawl_result.success:
+        return {
+            'success': False,
+            'url': url,
+            'error': crawl_result.error or f'HTTP {crawl_result.status_code}',
+            'status_code': crawl_result.status_code
+        }
     
-    for i, r in enumerate(results, 1):
-        print(f"\n{i}. {r['metadata']['title']}")
-        print(f"   URL: {r['metadata']['url']}")
-        print(f"   Score: {r['score']:.3f}")
-        print(f"   Text: {r['text'][:150]}...")
+    print(f"✓ Crawled successfully ({len(crawl_result.html):,} chars)")
+    
+    # Extract clean content
+    extracted = extract_content(crawl_result.html, url)
+    
+    if not extracted.text:
+        return {
+            'success': False,
+            'url': url,
+            'error': 'No content extracted from HTML'
+        }
+    
+    print(f"✓ Extracted: {extracted.title}")
+    print(f"  Word count: {extracted.word_count:,}")
+    
+    return {
+        'success': True,
+        'url': url,
+        'title': extracted.title,
+        'text': extracted.text,
+        'word_count': extracted.word_count,
+        'html_length': len(crawl_result.html),
+        'status_code': crawl_result.status_code,
+        'published_date': extracted.published_date
+    }
 
 
-# Example 4: Using caching for speed
-def example_caching():
-    from src.optimized_pipeline import FastPipeline
-    import time
+def get_cleaned_data(url, pipeline=None):
+    """
+    Get cleaned and chunked data from the vector store.
+    Automatically indexes the URL if not already indexed.
     
-    pipeline = FastPipeline(cache_enabled=True)
+    Args:
+        url: The URL to retrieve cleaned data for
+        pipeline: Optional FastPipeline instance (creates one if not provided)
+        
+    Returns:
+        dict with:
+            - success: bool
+            - url: str
+            - title: str
+            - chunks: list of chunk dicts
+            - full_text: str (all chunks combined)
+            - total_words: int
+            - total_chunks: int
+            - indexed_at: str
+    """
+    if pipeline is None:
+        pipeline = FastPipeline()
     
-    url = "https://example.com"
+    # Check if URL is already indexed
+    collection = pipeline.vector_store.collection
+    results = collection.get(where={"url": url})
     
-    # First time - slow
-    start = time.time()
-    result1 = pipeline.index_url(url)
-    time1 = time.time() - start
+    # If not indexed, index it now
+    if len(results['ids']) == 0:
+        print(f"URL not indexed. Indexing now...")
+        index_result = pipeline.index_url(url)
+        
+        if not index_result['success']:
+            return {
+                'success': False,
+                'url': url,
+                'error': index_result.get('error', 'Failed to index')
+            }
+        
+        print(f"✓ Indexed successfully")
+        # Retrieve again
+        results = collection.get(where={"url": url})
     
-    # Second time - cached (instant!)
-    start = time.time()
-    result2 = pipeline.index_url(url)
-    time2 = time.time() - start
+    # Build chunks list
+    chunks = []
+    for i in range(len(results['ids'])):
+        chunks.append({
+            'chunk_id': results['ids'][i],
+            'text': results['metadatas'][i]['text'],
+            'chunk_index': results['metadatas'][i]['chunk_index'],
+            'title': results['metadatas'][i]['title'],
+            'url': results['metadatas'][i]['url'],
+            'word_count': results['metadatas'][i]['word_count'],
+            'indexed_at': results['metadatas'][i]['indexed_at']
+        })
     
-    print(f"First run: {time1:.2f}s")
-    print(f"Cached run: {time2:.2f}s")
-    print(f"Speedup: {time1/time2:.1f}x faster!")
+    # Sort by chunk_index to maintain order
+    chunks.sort(key=lambda x: x['chunk_index'])
+    
+    # Combine all chunks into full text
+    full_text = "\n\n".join([c['text'] for c in chunks])
+    
+    return {
+        'success': True,
+        'url': url,
+        'title': chunks[0]['title'] if chunks else '',
+        'chunks': chunks,
+        'full_text': full_text,
+        'total_words': sum(c['word_count'] for c in chunks),
+        'total_chunks': len(chunks),
+        'indexed_at': chunks[0]['indexed_at'] if chunks else None
+    }
 
 
-# Example 5: View stored content
-def example_view_content():
-    from src.optimized_pipeline import FastPipeline
-    
-    pipeline = FastPipeline()
-    
-    # Check stats
-    stats = pipeline.stats()
-    print(f"Total chunks indexed: {stats['total_chunks']}")
-    print(f"Embedding model: {stats['embedding_model']}")
-    print(f"Device: {stats['device']}")
-
-
-# Example 6: Original pipeline (simple, slower)
-def example_original():
-    from src.pipeline import IndexingPipeLine
-    
-    pipeline = IndexingPipeLine()
-    pipeline.index_url("https://example.com")
-    
-
+# Example usage
 if __name__ == "__main__":
-    print("Web Intelligence - Usage Examples\n")
+    url = "https://en.wikipedia.org/wiki/Nostradamus"
     
-    print("=" * 60)
-    print("Example 1: Quick Start")
-    print("=" * 60)
-    example_quick_start()
+    print("="*60)
+    print("FUNCTION 1: Extract URL Data (Raw Crawling)")
+    print("="*60)
     
-    print("\n" + "=" * 60)
-    print("Example 2: Batch Indexing")
-    print("=" * 60)
-    example_batch_indexing()
+    # Function 1: Extract raw data using our crawler
+    raw_data = extract_url_data(url)
     
-    print("\n" + "=" * 60)
-    print("Example 3: Search")
-    print("=" * 60)
-    example_search()
+    if raw_data['success']:
+        print(f"\n✅ Successfully extracted data:")
+        print(f"   Title: {raw_data['title']}")
+        print(f"   Word count: {raw_data['word_count']:,}")
+        print(f"   HTML size: {raw_data['html_length']:,} bytes")
+        print(f"\n   First 300 chars:")
+        print(f"   {raw_data['text'][:300]}...")
+    else:
+        print(f"\n❌ Failed: {raw_data['error']}")
+        exit(1)
     
-    print("\n" + "=" * 60)
-    print("Example 4: Caching")
-    print("=" * 60)
-    example_caching()
+    print(f"\n{'='*60}")
+    print("FUNCTION 2: Get Cleaned Data (Indexed/Chunked)")
+    print("="*60)
     
-    print("\n" + "=" * 60)
-    print("Example 5: Stats")
-    print("=" * 60)
-    example_view_content()
+    # Function 2: Get cleaned/chunked data from vector store
+    cleaned_data = get_cleaned_data(url)
+    
+    if cleaned_data['success']:
+        print(f"\n✅ Retrieved cleaned data:")
+        print(f"   Title: {cleaned_data['title']}")
+        print(f"   Total chunks: {cleaned_data['total_chunks']}")
+        print(f"   Total words: {cleaned_data['total_words']:,}")
+        print(f"   Total characters: {len(cleaned_data['full_text']):,}")
+        print(f"   Indexed at: {cleaned_data['indexed_at']}")
+        
+        print(f"\n   First 5 chunks:")
+        for chunk in cleaned_data['chunks'][:5]:
+            print(f"\n   --- Chunk {chunk['chunk_index']} ({chunk['word_count']} words) ---")
+            print(f"   {chunk['text'][:200]}...")
+        
+        if cleaned_data['total_chunks'] > 5:
+            print(f"\n   ... and {cleaned_data['total_chunks'] - 5} more chunks")
+        
+        # Optional: Save to file
+        save_to_file = input("\n\nSave full cleaned text to file? (y/n): ").lower().strip()
+        if save_to_file == 'y':
+            filename = "cleaned_data.txt"
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(f"Title: {cleaned_data['title']}\n")
+                f.write(f"URL: {url}\n")
+                f.write(f"Indexed: {cleaned_data['indexed_at']}\n")
+                f.write(f"Total Words: {cleaned_data['total_words']:,}\n")
+                f.write(f"Total Chunks: {cleaned_data['total_chunks']}\n")
+                f.write("="*60 + "\n\n")
+                f.write(cleaned_data['full_text'])
+            print(f"✅ Saved to {filename}")
+    else:
+        print(f"\n❌ Failed: {cleaned_data['error']}")

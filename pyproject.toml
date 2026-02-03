@@ -38,7 +38,9 @@ dependencies = [
     "fastapi>=0.128.0",
     "httpx[http2]>=0.28.1",
     "langchain-google-genai>=4.2.0",
+    "litellm>=1.81.6",
     "sentence-transformers>=5.2.0",
+    "tavily-python>=0.7.21",
     "trafilatura>=2.0.0",
     "uvicorn>=0.40.0",
 ]
