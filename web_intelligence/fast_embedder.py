@@ -1,10 +1,4 @@
-"""
-Fast text embedding with GPU acceleration and caching support.
-
-This module provides efficient text-to-vector conversion using sentence transformers.
-Embeddings are 384-dimensional vectors that enable semantic search and similarity
-comparisons. GPU acceleration provides 10-50x speedup over CPU-only processing.
-"""
+"""Fast text embedding with GPU acceleration and caching support."""
 
 from sentence_transformers import SentenceTransformer
 from typing import List, Optional, Dict
@@ -13,18 +7,7 @@ from .cache import EmbeddingCache
 
 
 class FastEmbedder:
-    """
-    High-performance text embedding with GPU support and intelligent caching.
-    
-    Converts text into numerical vector representations (embeddings) for semantic
-    search and similarity analysis. Supports GPU acceleration and caches computed
-    embeddings to avoid redundant calculations.
-    
-    Performance characteristics:
-    - CPU only: ~500ms per 100 texts
-    - GPU accelerated: ~50ms per 100 texts (10x faster)
-    - Cached results: <1ms (instant retrieval)
-    """
+    """Text embedder with GPU support and persistent embedding cache."""
     
     def __init__(
         self, 
@@ -32,31 +15,11 @@ class FastEmbedder:
         device: Optional[str] = None,
         use_cache: bool = True
     ):
-        """
-        Initialize the embedding model with specified configuration.
-        
-        Args:
-            model_name: SentenceTransformer model identifier. Options:
-                - "all-MiniLM-L6-v2": Fast, 384-dim vectors (recommended)
-                - "all-MiniLM-L12-v2": Higher quality, slower
-            device: Compute device specification:
-                - "cuda": Force GPU usage
-                - "cpu": Force CPU usage
-                - None: Auto-detect (prefers GPU if available)
-            use_cache: Enable persistent caching of computed embeddings
-        """
-        print(f"Loading embedding model: {model_name}...")
-        
+        """Initialize embedder. device: 'cuda', 'cpu', or None for auto-detect."""
         if device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            else:
-                device = "cpu"
+            device = "cuda" if torch.cuda.is_available() else "cpu"
             
-        if device == "cuda" and torch.cuda.is_available():
-            print(f"✓ GPU detected! Using CUDA for 10-50x speedup")
-        else:
-            print(f"Using CPU (consider GPU for better performance)")
+        if device == "cuda" and not torch.cuda.is_available():
             device = "cpu"
         
         self.model = SentenceTransformer(model_name, device=device)
@@ -71,21 +34,10 @@ class FastEmbedder:
         
         if device == "cpu":
             torch.set_num_threads(torch.get_num_threads())
-        
-        print(f"✓ Model loaded ({self.dimension} dimensions, device: {device})")
-        if use_cache:
-            print(f"✓ Embedding cache enabled")
+
 
     def embed(self, text: str) -> List[float]:
-        """
-        Convert a single text string into an embedding vector.
-        
-        Args:
-            text: Input text to convert
-            
-        Returns:
-            384-dimensional embedding vector as list of floats
-        """
+        """Embed a single text string into a vector."""
         if self.cache:
             cached = self.cache.get(text)
             if cached is not None:
@@ -111,20 +63,7 @@ class FastEmbedder:
         batch_size: int = 32,
         show_progress: bool = False
     ) -> List[List[float]]:
-        """
-        Convert multiple texts into embedding vectors efficiently.
-        
-        Batch processing is significantly faster than individual conversions
-        due to GPU parallelization and reduced overhead.
-        
-        Args:
-            texts: List of text strings to convert
-            batch_size: Number of texts to process simultaneously
-            show_progress: Display progress bar for large batches
-            
-        Returns:
-            List of embedding vectors, one per input text
-        """
+        """Embed multiple texts. Uses cache when available."""
         if len(texts) == 0:
             return []
         
@@ -170,13 +109,7 @@ class FastEmbedder:
         return results
     
     def get_cache_stats(self) -> Dict:
-        """
-        Retrieve cache performance statistics.
-        
-        Returns:
-            Dictionary containing cache hits, misses, hit rate percentage,
-            and total number of cached embeddings.
-        """
+        """Return cache hit/miss statistics."""
         total = self.cache_hits + self.cache_misses
         hit_rate = (self.cache_hits / total * 100) if total > 0 else 0
         
@@ -196,12 +129,7 @@ class FastEmbedder:
 
 
 def benchmark_embedder(model_name: str = "all-MiniLM-L6-v2", num_texts: int = 100):
-    """
-    Benchmark embedding performance on current hardware.
-    
-    Tests CPU, GPU (if available), and cache performance to measure
-    throughput and speedup factors.
-    """
+    """Benchmark embedding speed on CPU, GPU, and with cache."""
     import time
     
     texts = ["This is a test sentence for benchmarking."] * num_texts

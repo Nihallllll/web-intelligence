@@ -1,10 +1,4 @@
-"""
-High-performance web content indexing pipeline with async crawling and intelligent caching.
-
-This module orchestrates the complete workflow for converting web pages into
-searchable vector embeddings, including crawling, extraction, chunking, embedding,
-and storage with comprehensive caching and deduplication.
-"""
+"""Web content indexing pipeline with async crawling and multi-tier caching."""
 
 from typing import List, Dict, Optional
 import asyncio
@@ -19,21 +13,7 @@ from datetime import datetime
 
 
 class FastPipeline:
-    """
-    Production-ready content indexing pipeline with async crawling and GPU acceleration.
-    
-    Features:
-    - Asynchronous crawling with configurable concurrency
-    - GPU-accelerated embeddings (10-50x speedup)
-    - Multi-tier caching (URL, content, embedding)
-    - Sentence-aware text chunking
-    - Content-based deduplication
-    
-    Performance:
-    - Batch processing: ~0.5s per URL
-    - Cached retrieval: <0.01s per URL
-    - Concurrent crawling: 10 URLs simultaneously
-    """
+    """End-to-end pipeline: crawl URLs, extract text, embed, and store in vector DB."""
     
     def __init__(
         self,
@@ -43,18 +23,8 @@ class FastPipeline:
         embedding_model: str = "all-MiniLM-L6-v2",
         use_embedding_cache: bool = True
     ):
-        """
-        Initialize the indexing pipeline with specified configuration.
-        
-        Args:
-            storage_path: Directory path for vector database persistence
-            cache_enabled: Enable URL and content caching
-            use_gpu: Force GPU usage (None = auto-detect)
-            embedding_model: SentenceTransformer model identifier
-            use_embedding_cache: Enable persistent embedding cache
-        """
-        print("Initializing Fast Pipeline...")
-        print("   Loading components...")
+        """Initialize pipeline components."""
+        print("Initializing pipeline...")
         
         self.embedder = FastEmbedder(
             model_name=embedding_model,
@@ -78,21 +48,7 @@ class FastPipeline:
         print("✓ Pipeline ready!")
     
     def index_url(self, url: str, skip_cache: bool = False) -> Dict:
-        """
-        Index a single URL into the vector database.
-        
-        Args:
-            url: URL to index
-            skip_cache: Force reprocessing even if cached
-            
-        Returns:
-            Dictionary with processing results including:
-            - success: bool
-            - url: str
-            - title: str
-            - chunks_count: int
-            - cached: bool
-        """
+        """Index a single URL. Returns result dict with success, title, chunks_count."""
         if self.url_cache and not skip_cache:
             if self.url_cache.is_cached(url):
                 cached_data = self.url_cache.get(url)
@@ -121,20 +77,9 @@ class FastPipeline:
         return result
     
     async def _index_urls_async(self, urls: List[str]) -> List[Dict]:
-        """
-        Internal async method for processing multiple URLs concurrently.
-        
-        Pipeline stages:
-        1. Async batch crawling (10 concurrent connections)
-        2. Content extraction from HTML
-        3. Duplicate detection via content hashing
-        4. Sentence-aware text chunking
-        5. Batch embedding generation
-        6. Vector database storage
-        """
+        """Crawl, extract, chunk, embed, and store content for a list of URLs."""
         results = []
         
-        print(f"Crawling {len(urls)} URLs...")
         crawl_results = await crawl_urls_batch(urls, max_concurrent=10)
         
         for crawl_result in crawl_results:
@@ -215,19 +160,7 @@ class FastPipeline:
         return results
     
     def index_batch(self, urls: List[str], skip_cached: bool = True) -> List[Dict]:
-        """
-        Index multiple URLs concurrently with intelligent caching.
-        
-        Processes URLs in parallel using async crawling. Automatically filters
-        cached URLs to avoid redundant processing.
-        
-        Args:
-            urls: List of URLs to index
-            skip_cached: Skip URLs that are already cached
-            
-        Returns:
-            List of result dictionaries, one per URL
-        """
+        """Index multiple URLs concurrently. Skips already-cached URLs by default."""
         import time
         
         urls_to_process = []
@@ -252,10 +185,9 @@ class FastPipeline:
             urls_to_process = urls
         
         if len(urls_to_process) == 0:
-            print("All URLs cached, nothing to process!")
             return cached_results
         
-        print(f"Processing {len(urls_to_process)} URLs (async batch mode)...")
+        print(f"Processing {len(urls_to_process)} URLs...")
         if cached_results:
             print(f"{len(cached_results)} URLs already cached, skipping")
         
@@ -286,19 +218,7 @@ class FastPipeline:
         return cached_results + new_results
     
     def search(self, query: str, limit: int = 5) -> List[Dict]:
-        """
-        Semantic search across indexed content.
-        
-        Converts query to embedding vector and retrieves most similar chunks
-        using cosine similarity.
-        
-        Args:
-            query: Search query text
-            limit: Maximum number of results to return
-            
-        Returns:
-            List of matching chunks with similarity scores and metadata
-        """
+        """Semantic search across indexed content. Returns ranked chunks."""
         query_vector = self.embedder.embed(query)
         
         results = self.vector_store.search(query_vector, limit=limit)
@@ -306,12 +226,7 @@ class FastPipeline:
         return results
     
     def stats(self) -> Dict:
-        """
-        Get comprehensive pipeline statistics.
-        
-        Returns:
-            Dictionary containing database stats, model info, and cache metrics
-        """
+        """Return pipeline statistics: DB chunk count, model info, cache metrics."""
         collection_count = self.vector_store.collection.count()
         
         stats = {
@@ -329,14 +244,13 @@ class FastPipeline:
         return stats
     
     def clear_all_caches(self):
-        """Clear all caches (URL, content, and embedding)."""
+        """Clear URL, content, and embedding caches."""
         if self.url_cache:
             self.url_cache.clear()
         if self.content_cache:
             self.content_cache.clear()
         if self.embedder:
             self.embedder.clear_cache()
-        print("✓ All caches cleared!")
 
 
 if __name__ == "__main__":

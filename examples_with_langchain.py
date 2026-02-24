@@ -1,6 +1,4 @@
-"""
-Examples of using Web Intelligence with LangChain for RAG (Retrieval-Augmented Generation)
-"""
+"""Web Intelligence + LangChain RAG examples."""
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from web_intelligence import FastPipeline
@@ -19,27 +17,21 @@ pipeline = FastPipeline(cache_enabled=True, use_gpu=None)
 # Example 1: Simple RAG - Index a URL and answer questions about it
 def example_simple_rag():
     """Index a webpage and answer questions using its content."""
-    print("\n" + "="*60)
-    print("EXAMPLE 1: Simple RAG")
-    print("="*60)
     
     # Index a webpage
     url = "https://en.wikipedia.org/wiki/Nostradamus"
-    print(f"\nIndexing: {url}")
     result = pipeline.index_url(url)
-    print(f"✓ Indexed: {result['title']}, Chunks: {result['chunks_count']}")
+    print(f"Indexed: {result['title']}, Chunks: {result['chunks_count']}")
     
     # Ask a question
-    query = "who is nostradamus and tell me his 5 predictions "
-    print(f"\nQuestion: {query}")
+    query = "who is nostradamus and tell me his 5 predictions"
+    print(f"Question: {query}")
     
     # Search indexed content
-    search_results = pipeline.search(query, limit=2)  # Reduced from 3
+    search_results = pipeline.search(query, limit=2)
     
     # Build context from search results (truncate to save tokens)
     context = "\n\n".join([r['text'][:500] + "..." for r in search_results])
-    
-    # Ask LLM with context
     prompt = f"""Based on the following context, answer the question.
 
 Context:
@@ -59,10 +51,7 @@ Answer:"""
 
 # Example 2: Multi-URL RAG - Index multiple sources
 def example_multi_source_rag():
-    """Index multiple webpages and answer questions using all of them."""
-    print("\n" + "="*60)
-    print("EXAMPLE 2: Multi-Source RAG")
-    print("="*60)
+    """Index multiple webpages and answer a question across all of them."""
     
     # Index multiple URLs
     urls = [
@@ -70,7 +59,6 @@ def example_multi_source_rag():
         "https://docs.python.org/3/tutorial/index.html",
     ]
     
-    print(f"\nIndexing {len(urls)} URLs...")
     results = pipeline.index_batch(urls)
     
     for r in results:
@@ -79,19 +67,14 @@ def example_multi_source_rag():
     
     # Ask a question
     query = "How do I get started with Python?"
-    print(f"\nQuestion: {query}")
+    print(f"Question: {query}")
     
-    # Search across all indexed content
-    search_results = pipeline.search(query, limit=3)  # Reduced from 5
+    search_results = pipeline.search(query, limit=3)
     
     # Build context with sources (truncate to save tokens)
     context_parts = []
     for i, r in enumerate(search_results, 1):
         context_parts.append(f"[Source {i}] {r['metadata']['url']}\n{r['text'][:400]}...")
-    
-    context = "\n\n".join(context_parts)
-    
-    # Ask LLM with context and sources
     prompt = f"""Based on the following sources, answer the question. Include source numbers in your answer.
 
 {context}
@@ -107,9 +90,6 @@ Answer with citations:"""
 # Example 3: Conversational RAG - Chat with your indexed content
 def example_conversational_rag():
     """Have a conversation with the LLM using indexed content."""
-    print("\n" + "="*60)
-    print("EXAMPLE 3: Conversational RAG")
-    print("="*60)
     
     # Index content (using cached if already indexed)
     url = "https://www.python.org/about/"
@@ -131,8 +111,7 @@ def example_conversational_rag():
         search_results = pipeline.search(question, limit=3)
         context = "\n\n".join([r['text'] for r in search_results])
         
-        # Build conversation context
-        history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history])
+    history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history])
         
         prompt = f"""You are a helpful assistant. Use the provided context to answer questions.
 
@@ -149,12 +128,10 @@ Answer:"""
         response = llm.invoke(prompt)
         print(f"Assistant: {response.content}")
         
-        # Add to conversation history
         conversation_history.append({"role": "user", "content": question})
         conversation_history.append({"role": "assistant", "content": response.content})
 
 
-# Example 4: Build a custom chatbot class
 class WebIntelligenceChatbot:
     """A chatbot that uses indexed web content to answer questions."""
     
@@ -164,26 +141,19 @@ class WebIntelligenceChatbot:
         self.conversation_history = []
     
     def index_urls(self, urls):
-        """Index multiple URLs for the chatbot to use."""
-        print(f"Indexing {len(urls)} URLs...")
+        """Index multiple URLs."""
         results = self.pipeline.index_batch(urls)
         successful = sum(1 for r in results if r['success'])
         failed = [r for r in results if not r['success']]
         
-        print(f"✓ Successfully indexed {successful}/{len(urls)} URLs")
-        
-        # Show failed URLs
+        print(f"Indexed {successful}/{len(urls)} URLs")
         if failed:
-            print("\n⚠ Failed to index:")
             for r in failed:
-                error = r.get('error', 'Unknown error')
-                print(f"  - {r['url']}: {error}")
-        
+                print(f"  Failed: {r['url']}: {r.get('error', 'Unknown error')}")
         return results
     
     def ask(self, question, num_results=5, debug=False):
-        """Ask a question and get an answer based on indexed content."""
-        # Search for relevant content
+        """Answer a question from indexed content."""
         search_results = self.pipeline.search(question, limit=num_results)
         
         if not search_results:
@@ -196,22 +166,20 @@ class WebIntelligenceChatbot:
                 print(f"  {i}. Score: {r.get('score', 0):.3f} | {r['text'][:100]}...")
             print()
         
-        # Build context from search results (full text, no truncation)
         context_parts = []
         for i, r in enumerate(search_results, 1):
             source = r['metadata']['url']
-            text = r['text']  # Use full text
+            text = r['text']
             score = r.get('score', 0)
             context_parts.append(f"[Source {i}] (Relevance: {score:.2f})\n{source}\n{text}")
         
         context = "\n\n".join(context_parts)
         
-        # Build prompt with conversation history
         history_text = ""
         if self.conversation_history:
             history_text = "Previous conversation:\n" + "\n".join([
                 f"{msg['role'].title()}: {msg['content']}" 
-                for msg in self.conversation_history[-4:]  # Last 2 exchanges
+                for msg in self.conversation_history[-4:]
             ]) + "\n\n"
         
         prompt = f"""You are a helpful assistant. Answer the question based on the provided sources.
@@ -246,9 +214,6 @@ Answer:"""
 
 def example_chatbot_class():
     """Use the custom chatbot class."""
-    print("\n" + "="*60)
-    print("EXAMPLE 4: Custom Chatbot Class")
-    print("="*60)
     
     # Create chatbot
     chatbot = WebIntelligenceChatbot(llm, pipeline)
@@ -275,31 +240,21 @@ def example_chatbot_class():
     # Show stats
     print("\n" + "-"*60)
     stats = chatbot.get_stats()
-    print(f"Total chunks indexed: {stats['total_chunks_in_database']}")
-    print(f"Device: {stats['device']}")
+    print(f"Total chunks: {stats['total_chunks_in_database']}, Device: {stats['device']}")
 
 
 # Example 5: Real-time web research assistant
 def example_research_assistant():
-    """Research a topic by indexing relevant URLs and answering questions."""
-    print("\n" + "="*60)
-    print("EXAMPLE 5: Research Assistant")
-    print("="*60)
+    """Research a topic by indexing relevant URLs and summarizing."""
+    print("\nResearching topic: machine learning")
     
     topic = "machine learning"
-    
-    # You could programmatically find URLs (e.g., from search API)
-    # For demo, using predefined URLs
     urls = [
         "https://en.wikipedia.org/wiki/Machine_learning",
         "https://www.python.org/about/",
     ]
-    
-    print(f"\nResearching topic: {topic}")
-    print(f"Indexing {len(urls)} sources...")
-    
     results = pipeline.index_batch(urls)
-    print(f"✓ Indexed {sum(1 for r in results if r['success'])} pages")
+    print(f"Indexed {sum(1 for r in results if r['success'])} pages")
     
     # Generate a summary
     search_results = pipeline.search(topic, limit=5)
@@ -319,14 +274,8 @@ Summary:"""
 
 
 if __name__ == "__main__":
-    # Run examples
-    print("WEB INTELLIGENCE + LANGCHAIN EXAMPLES")
-    print("="*60)
-    
-    # Uncomment the examples you want to run:
-    
     example_simple_rag()
     # example_multi_source_rag()
-    #example_conversational_rag()
+    # example_conversational_rag()
     # example_chatbot_class()
     # example_research_assistant()

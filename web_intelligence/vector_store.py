@@ -1,4 +1,3 @@
-# src/vector_store.py
 import chromadb
 from typing import List, Dict, Optional
 
@@ -17,14 +16,13 @@ class VectorStore:
     
     def search(self, query_vector: List[float], limit: int = 5, 
                filter: Optional[Dict] = None) -> List[Dict]:
-        """Search for similar vectors."""
+        """Search for similar vectors. Returns list of result dicts with score."""
         results = self.collection.query(
             query_embeddings=[query_vector],
             n_results=limit,
             where=filter
         )
         
-        # Format results
         formatted = []
         for i in range(len(results['ids'][0])):
             formatted.append({
