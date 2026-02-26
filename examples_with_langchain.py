@@ -113,7 +113,7 @@ def example_conversational_rag():
         
     history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history])
         
-        prompt = f"""You are a helpful assistant. Use the provided context to answer questions.
+    prompt = f"""You are a helpful assistant. Use the provided context to answer questions.
 
 Previous conversation:
 {history_text if history_text else "None"}
@@ -125,11 +125,11 @@ User question: {question}
 
 Answer:"""
         
-        response = llm.invoke(prompt)
-        print(f"Assistant: {response.content}")
+    response = llm.invoke(prompt)
+    print(f"Assistant: {response.content}")
         
-        conversation_history.append({"role": "user", "content": question})
-        conversation_history.append({"role": "assistant", "content": response.content})
+    conversation_history.append({"role": "user", "content": question})
+    conversation_history.append({"role": "assistant", "content": response.content})
 
 
 class WebIntelligenceChatbot:
