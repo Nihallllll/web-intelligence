@@ -1,7 +1,13 @@
-httpx
+httpx[http2]
 beautifulsoup4
 trafilatura
 sentence-transformers
 chromadb
+torch
+
+# Optional: REST API server
 fastapi
 uvicorn
+
+# Optional: dev
+python-dotenv
