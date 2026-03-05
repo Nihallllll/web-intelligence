@@ -7,17 +7,21 @@ All settings can be overridden programmatically.
 Environment variables:
     WI_CRAWLER_MAX_CONCURRENT  - Max parallel HTTP requests (default: 10)
     WI_CRAWLER_TIMEOUT         - Request timeout in seconds (default: 15)
+    WI_CRAWLER_MAX_RETRIES     - Retry failed requests (default: 3)
+    WI_CRAWLER_REQUESTS_PER_SEC - Rate limit (default: 0 = unlimited)
+    WI_CRAWLER_RESPECT_ROBOTS  - Respect robots.txt (default: true)
     WI_CHUNK_SIZE              - Words per chunk (default: 400)
     WI_CHUNK_OVERLAP           - Overlap words between chunks (default: 50)
     WI_EMBEDDING_MODEL         - Sentence-transformers model (default: all-MiniLM-L6-v2)
     WI_EMBEDDING_DEVICE        - Force 'cuda' or 'cpu' (default: auto-detect)
-    WI_VECTOR_STORE_PATH       - ChromaDB storage path (default: ./data/chroma)
-    WI_COLLECTION_NAME         - ChromaDB collection name (default: web_content)
+    WI_VECTOR_STORE_PATH       - Storage path (default: ./data)
+    WI_COLLECTION_NAME         - Collection name (default: web_content)
     WI_CACHE_ENABLED           - Enable caching (default: true)
     WI_SERVER_HOST             - API server host (default: 0.0.0.0)
     WI_SERVER_PORT             - API server port (default: 8000)
 """
 
+import copy
 import os
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
@@ -55,6 +59,9 @@ class CrawlerConfig:
     """Settings for the web crawler."""
     max_concurrent: int = _env("WI_CRAWLER_MAX_CONCURRENT", 10, int)
     timeout: int = _env("WI_CRAWLER_TIMEOUT", 15, int)
+    max_retries: int = _env("WI_CRAWLER_MAX_RETRIES", 3, int)
+    requests_per_second: float = _env("WI_CRAWLER_REQUESTS_PER_SEC", 0.0, float)
+    respect_robots: bool = _env("WI_CRAWLER_RESPECT_ROBOTS", True, bool)
     user_agent: str = _env(
         "WI_CRAWLER_USER_AGENT",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -81,7 +88,7 @@ class EmbeddingConfig:
 @dataclass
 class VectorStoreConfig:
     """Settings for the vector database."""
-    persist_directory: str = _env("WI_VECTOR_STORE_PATH", "./data/chroma")
+    persist_directory: str = _env("WI_VECTOR_STORE_PATH", "./data")
     collection_name: str = _env("WI_COLLECTION_NAME", "web_content")
 
 
@@ -127,6 +134,11 @@ class Config:
         from dataclasses import asdict
         return asdict(self)
 
+    def copy(self) -> "Config":
+        """Return a deep copy so mutations don't affect the original."""
+        return copy.deepcopy(self)
 
-# Global default config instance
-default_config = Config()
+
+def default_config() -> Config:
+    """Return a fresh Config instance (no shared mutable state)."""
+    return Config()

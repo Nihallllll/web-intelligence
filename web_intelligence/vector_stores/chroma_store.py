@@ -1,96 +1,104 @@
 """
-Vector store backed by ChromaDB with document management.
+ChromaDB vector store backend (persistent, production-grade).
 
-.. deprecated:: 0.4.0
-    Import from ``web_intelligence.vector_stores`` instead::
-
-        from web_intelligence.vector_stores import ChromaVectorStore
-        store = ChromaVectorStore()
-
-    This module is kept for backward compatibility.
+Install:  pip install chromadb
 """
 
-import chromadb
+from __future__ import annotations
+
+import logging
 from typing import List, Dict, Optional
 
-import warnings
-
-warnings.warn(
-    "web_intelligence.vector_store is deprecated. "
-    "Use web_intelligence.vector_stores.ChromaVectorStore instead.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+logger = logging.getLogger("web_intelligence.vector_stores.chroma")
 
 
-class VectorStore:
-    """Persistent vector store with search, document management, and filtering."""
+class ChromaVectorStore:
+    """
+    Persistent vector store backed by ChromaDB.
 
-    def __init__(self, persist_directory: str = "./data/chroma",
-                 collection_name: str = "web_content"):
+    Args:
+        persist_directory: Path to store ChromaDB data on disk.
+        collection_name: Name of the ChromaDB collection.
+    """
+
+    def __init__(
+        self,
+        persist_directory: str = "./data/chroma",
+        collection_name: str = "web_content",
+    ):
+        try:
+            import chromadb
+        except ImportError as exc:
+            raise ImportError(
+                "ChromaDB backend requires 'chromadb'. "
+                "Install with:  pip install chromadb"
+            ) from exc
+
         self.persist_directory = persist_directory
         self.collection_name = collection_name
         self.client = chromadb.PersistentClient(path=persist_directory)
         self.collection = self.client.get_or_create_collection(collection_name)
+        logger.info("ChromaDB store ready (dir=%s, collection=%s)", persist_directory, collection_name)
 
-    def add(self, vectors: List[List[float]], metadatas: List[Dict], ids: List[str]):
-        """Add vectors with metadata to the store."""
-        self.collection.add(
-            embeddings=vectors,
-            metadatas=metadatas,
-            ids=ids,
-        )
+    def add(
+        self,
+        vectors: List[List[float]],
+        metadatas: List[Dict],
+        ids: List[str],
+        documents: Optional[List[str]] = None,
+    ) -> None:
+        """Add vectors with metadata. Uses ChromaDB ``documents`` field for text."""
+        kwargs: Dict = {
+            "embeddings": vectors,
+            "metadatas": metadatas,
+            "ids": ids,
+        }
+        if documents:
+            kwargs["documents"] = documents
+        self.collection.add(**kwargs)
 
-    def search(self, query_vector: List[float], limit: int = 5,
-               filter: Optional[Dict] = None,
-               min_score: float = 0.0) -> List[Dict]:
-        """
-        Semantic search. Returns ranked list of result dicts.
-
-        Args:
-            query_vector: Query embedding.
-            limit: Max results to return.
-            filter: ChromaDB where-filter dict (e.g. {"url": "https://..."}).
-            min_score: Minimum similarity score (0-1) to include.
-
-        Returns:
-            List of dicts with keys: id, text, source, score, metadata.
-        """
-        kwargs = {
+    def search(
+        self,
+        query_vector: List[float],
+        limit: int = 5,
+        where_filter: Optional[Dict] = None,
+        min_score: float = 0.0,
+    ) -> List[Dict]:
+        kwargs: Dict = {
             "query_embeddings": [query_vector],
             "n_results": limit,
         }
-        if filter:
-            kwargs["where"] = filter
+        if where_filter:
+            kwargs["where"] = where_filter
 
         results = self.collection.query(**kwargs)
 
         formatted = []
         for i in range(len(results["ids"][0])):
+            # ChromaDB distance → similarity score
             score = 1 - results["distances"][0][i]
             if score < min_score:
                 continue
+
+            meta = results["metadatas"][0][i]
+            # Text can come from documents field or metadata fallback
+            text = ""
+            if results.get("documents") and results["documents"][0]:
+                text = results["documents"][0][i] or ""
+            if not text:
+                text = meta.get("text", "")
+
             formatted.append({
                 "id": results["ids"][0][i],
-                "text": results["metadatas"][0][i].get("text", ""),
-                "source": results["metadatas"][0][i].get("url", ""),
+                "text": text,
+                "source": meta.get("url", ""),
                 "score": score,
-                "metadata": results["metadatas"][0][i],
+                "metadata": meta,
             })
 
         return formatted
 
-    # ------------------------------------------------------------------
-    # Document management
-    # ------------------------------------------------------------------
-
     def list_documents(self) -> List[Dict]:
-        """
-        List all indexed documents (grouped by doc_id).
-
-        Returns:
-            List of dicts with url, title, doc_id, chunk_count, indexed_at.
-        """
         all_data = self.collection.get()
         if not all_data["ids"]:
             return []
@@ -113,21 +121,21 @@ class VectorStore:
         return sorted(docs.values(), key=lambda d: d["indexed_at"], reverse=True)
 
     def get_document(self, doc_id: str) -> Optional[Dict]:
-        """
-        Get all chunks for a specific document.
-
-        Returns:
-            Dict with doc metadata and list of chunks, or None.
-        """
         results = self.collection.get(where={"doc_id": doc_id})
         if not results["ids"]:
             return None
 
         chunks = []
         for i, id_ in enumerate(results["ids"]):
+            text = ""
+            if results.get("documents") and results["documents"][i]:
+                text = results["documents"][i]
+            if not text:
+                text = results["metadatas"][i].get("text", "")
+
             chunks.append({
                 "id": id_,
-                "text": results["metadatas"][i].get("text", ""),
+                "text": text,
                 "chunk_index": results["metadatas"][i].get("chunk_index", 0),
                 "word_count": results["metadatas"][i].get("word_count", 0),
             })
@@ -145,12 +153,6 @@ class VectorStore:
         }
 
     def delete_document(self, doc_id: str) -> bool:
-        """
-        Delete all chunks belonging to a document.
-
-        Returns:
-            True if chunks were found and deleted.
-        """
         results = self.collection.get(where={"doc_id": doc_id})
         if not results["ids"]:
             return False
@@ -158,12 +160,6 @@ class VectorStore:
         return True
 
     def delete_by_url(self, url: str) -> int:
-        """
-        Delete all chunks from a specific URL.
-
-        Returns:
-            Number of chunks deleted.
-        """
         results = self.collection.get(where={"url": url})
         if not results["ids"]:
             return 0
@@ -172,10 +168,8 @@ class VectorStore:
         return count
 
     def count(self) -> int:
-        """Return total number of chunks in the store."""
         return self.collection.count()
 
-    def clear(self):
-        """Delete all data from the collection."""
+    def clear(self) -> None:
         self.client.delete_collection(self.collection_name)
         self.collection = self.client.get_or_create_collection(self.collection_name)

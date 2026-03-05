@@ -5,6 +5,7 @@ Exposes the pipeline over HTTP so any LLM, app, or script can:
   - Index URLs (POST /index)
   - Search content (POST /search)
   - Retrieve LLM-ready context (POST /retrieve)
+  - Search the web (POST /search-web)
   - Manage documents (GET/DELETE /documents)
 
 Start with:
@@ -13,15 +14,20 @@ Start with:
     web-intelligence serve
 """
 
-from typing import List, Optional, Dict, Literal
+from __future__ import annotations
+
+import logging
 from contextlib import asynccontextmanager
+from typing import Dict, List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .optimized_pipeline import FastPipeline
 from .config import Config, default_config
+from .optimized_pipeline import FastPipeline
+
+logger = logging.getLogger("web_intelligence.server")
 
 
 # ---------------------------------------------------------------------------
@@ -32,25 +38,37 @@ class IndexURLRequest(BaseModel):
     url: str = Field(..., description="URL to crawl and index")
     skip_cache: bool = Field(False, description="Force re-crawl even if cached")
 
+
 class IndexBatchRequest(BaseModel):
     urls: List[str] = Field(..., description="List of URLs to index")
     skip_cached: bool = Field(True, description="Skip already-cached URLs")
 
+
 class SearchRequest(BaseModel):
     query: str = Field(..., description="Natural language search query")
     limit: int = Field(5, ge=1, le=50, description="Max results")
-    filter: Optional[Dict] = Field(None, description="Metadata filter (e.g. {\"url\": \"...\"})")
+    where_filter: Optional[Dict] = Field(None, description="Metadata filter")
     min_score: float = Field(0.0, ge=0.0, le=1.0, description="Minimum similarity score")
+
 
 class RetrieveRequest(BaseModel):
     query: str = Field(..., description="Natural language question")
     limit: int = Field(5, ge=1, le=50, description="Number of chunks to retrieve")
-    format: Literal["plain", "numbered", "structured"] = Field(
-        "numbered", description="Context format: plain, numbered, or structured"
+    output_format: Literal["plain", "numbered", "structured"] = Field(
+        "numbered", description="Context format"
     )
     max_context_words: int = Field(3000, ge=100, description="Max words in context")
-    filter: Optional[Dict] = Field(None, description="Metadata filter")
+    where_filter: Optional[Dict] = Field(None, description="Metadata filter")
     min_score: float = Field(0.0, ge=0.0, le=1.0)
+
+
+class SearchWebRequest(BaseModel):
+    query: str = Field(..., description="Natural language question")
+    max_results: int = Field(5, ge=1, le=20, description="Number of web results to crawl")
+    limit: int = Field(5, ge=1, le=50, description="Number of chunks to retrieve")
+    output_format: Literal["plain", "numbered", "structured"] = Field("numbered")
+    max_context_words: int = Field(3000, ge=100, description="Max words in context")
+
 
 class DeleteURLRequest(BaseModel):
     url: str
@@ -84,7 +102,7 @@ app = FastAPI(
         "No API keys, no cloud — runs 100% locally. "
         "Plug the /retrieve endpoint into any LLM (Ollama, OpenAI, Anthropic, etc.)."
     ),
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -103,23 +121,22 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    """Health check."""
     return {"status": "ok"}
 
 
 @app.post("/index")
-def index_url(req: IndexURLRequest):
+async def index_url(req: IndexURLRequest):
     """Crawl and index a single URL."""
     pipeline = get_pipeline()
-    result = pipeline.index_url(req.url, skip_cache=req.skip_cache)
+    result = await pipeline.index_url_async(req.url, skip_cache=req.skip_cache)
     return result
 
 
 @app.post("/index/batch")
-def index_batch(req: IndexBatchRequest):
+async def index_batch(req: IndexBatchRequest):
     """Crawl and index multiple URLs concurrently."""
     pipeline = get_pipeline()
-    results = pipeline.index_batch(req.urls, skip_cached=req.skip_cached)
+    results = await pipeline.index_batch_async(req.urls, skip_cached=req.skip_cached)
     return {
         "total": len(results),
         "success": sum(1 for r in results if r.get("success")),
@@ -134,7 +151,7 @@ def search(req: SearchRequest):
     results = pipeline.search(
         req.query,
         limit=req.limit,
-        filter=req.filter,
+        where_filter=req.where_filter,
         min_score=req.min_score,
     )
     return {"query": req.query, "results": results}
@@ -145,18 +162,15 @@ def retrieve(req: RetrieveRequest):
     """
     Retrieve LLM-ready context for a question.
 
-    Returns formatted context text that you can inject directly into
-    any LLM prompt (Ollama, OpenAI, Anthropic, local Llama, etc.).
-
-    Also returns OpenAI-compatible messages via the `messages` field.
+    Returns formatted context text and OpenAI-compatible messages.
     """
     pipeline = get_pipeline()
     ctx = pipeline.retrieve(
         req.query,
         limit=req.limit,
-        format=req.format,
+        output_format=req.output_format,
         max_context_words=req.max_context_words,
-        filter=req.filter,
+        where_filter=req.where_filter,
         min_score=req.min_score,
     )
     result = ctx.to_dict()
@@ -164,9 +178,31 @@ def retrieve(req: RetrieveRequest):
     return result
 
 
+@app.post("/search-web")
+def search_web(req: SearchWebRequest):
+    """
+    Search the web → crawl → index → retrieve LLM-ready context.
+
+    One endpoint to go from a question to context.
+    """
+    pipeline = get_pipeline()
+    try:
+        ctx = pipeline.search_web(
+            req.query,
+            max_results=req.max_results,
+            limit=req.limit,
+            output_format=req.output_format,
+            max_context_words=req.max_context_words,
+        )
+        result = ctx.to_dict()
+        result["messages"] = ctx.as_messages()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/documents")
 def list_documents():
-    """List all indexed documents."""
     pipeline = get_pipeline()
     docs = pipeline.list_documents()
     return {"total": len(docs), "documents": docs}
@@ -174,7 +210,6 @@ def list_documents():
 
 @app.get("/documents/{doc_id}")
 def get_document(doc_id: str):
-    """Get a specific document with all its chunks."""
     pipeline = get_pipeline()
     doc = pipeline.get_document(doc_id)
     if doc is None:
@@ -184,7 +219,6 @@ def get_document(doc_id: str):
 
 @app.delete("/documents/{doc_id}")
 def delete_document(doc_id: str):
-    """Delete a document and all its chunks."""
     pipeline = get_pipeline()
     deleted = pipeline.delete_document(doc_id)
     if not deleted:
@@ -194,7 +228,6 @@ def delete_document(doc_id: str):
 
 @app.delete("/documents/by-url")
 def delete_by_url(req: DeleteURLRequest):
-    """Delete all indexed content from a URL."""
     pipeline = get_pipeline()
     count = pipeline.delete_url(req.url)
     return {"deleted_chunks": count, "url": req.url}
@@ -202,7 +235,6 @@ def delete_by_url(req: DeleteURLRequest):
 
 @app.get("/stats")
 def get_stats():
-    """Pipeline statistics."""
     pipeline = get_pipeline()
     return pipeline.stats()
 
@@ -222,7 +254,7 @@ def clear_all():
 def start_server(host: str = None, port: int = None, reload: bool = None):
     """Start the API server."""
     import uvicorn
-    config = default_config.server
+    config = default_config().server
     uvicorn.run(
         "web_intelligence.server:app",
         host=host or config.host,

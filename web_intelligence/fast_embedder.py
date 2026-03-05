@@ -1,9 +1,28 @@
-"""Fast text embedding with GPU acceleration and caching support."""
+"""
+Fast text embedding with GPU acceleration and caching support.
+
+.. deprecated:: 0.4.0
+    Import from ``web_intelligence.embedders`` instead::
+
+        from web_intelligence.embedders import SentenceTransformerEmbedder
+        embedder = SentenceTransformerEmbedder()
+
+    This module is kept for backward compatibility.
+"""
 
 from sentence_transformers import SentenceTransformer
 from typing import List, Optional, Dict
 import torch
 from .cache import EmbeddingCache
+
+import warnings
+
+warnings.warn(
+    "web_intelligence.fast_embedder is deprecated. "
+    "Use web_intelligence.embedders.SentenceTransformerEmbedder instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 class FastEmbedder:
@@ -48,7 +67,8 @@ class FastEmbedder:
         vector = self.model.encode(
             text, 
             convert_to_tensor=False,
-            show_progress_bar=False
+            show_progress_bar=False,
+            normalize_embeddings=True,
         )
         embedding = vector.tolist()
         

@@ -1,6 +1,6 @@
 [project]
 name = "web-intelligence"
-version = "0.3.0"
+version = "0.4.0"
 description = "Free, local web crawling + semantic search library. Fetch the internet, serve it to any LLM."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,7 +16,8 @@ keywords = [
     "rag",
     "llm",
     "retrieval",
-    "gpu-acceleration"
+    "web-search",
+    "context-retrieval",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -32,14 +33,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Core deps — no LLM libraries forced. Users bring their own LLM.
+# Core deps — lightweight. Heavy backends (torch, chromadb) are optional extras.
 dependencies = [
     "beautifulsoup4>=4.12.0",
-    "chromadb>=0.4.0",
     "httpx[http2]>=0.25.0",
-    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
     "trafilatura>=1.6.0",
-    "torch>=2.0.0",
 ]
 
 [project.urls]
@@ -49,12 +48,41 @@ Repository = "https://github.com/yourusername/web-intelligence"
 Issues = "https://github.com/yourusername/web-intelligence/issues"
 
 [project.optional-dependencies]
-server = [
+# Lightweight ONNX embeddings (~200 MB, CPU-only)
+fastembed = ["fastembed>=0.2.0"]
+
+# Full GPU-accelerated embeddings (~2 GB)
+gpu = ["sentence-transformers>=2.2.0", "torch>=2.0.0"]
+
+# ChromaDB vector store (persistent, production-grade)
+chromadb = ["chromadb>=0.4.0"]
+
+# Web search (DuckDuckGo, no API key needed)
+search = ["ddgs>=6.0.0"]
+
+# REST API server
+server = ["fastapi>=0.100.0", "uvicorn>=0.23.0"]
+
+# Jupyter / running-event-loop compatibility
+jupyter = ["nest_asyncio>=1.5.0"]
+
+# OpenAI embeddings
+openai = ["openai>=1.0.0"]
+
+# Everything (except GPU — users should pick gpu or fastembed)
+all = [
+    "fastembed>=0.2.0",
+    "chromadb>=0.4.0",
+    "ddgs>=6.0.0",
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
+    "nest_asyncio>=1.5.0",
+    "python-dotenv>=1.0.0",
 ]
+
 dev = [
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
@@ -70,3 +98,17 @@ build-backend = "hatchling.build"
 
 [tool.hatchling.build.targets.wheel]
 packages = ["web_intelligence"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

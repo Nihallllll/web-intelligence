@@ -1,229 +1,132 @@
 # Web Intelligence
 
-A 100% free, fully local library that crawls the web and serves clean, searchable content to **any LLM** — no API keys, no cloud, no cost.
+**Fetch the internet, serve it to any AI.**
 
-You bring the LLM (Ollama, OpenAI, Anthropic, local Llama, whatever). This library handles everything else: crawl → extract → chunk → embed → store → retrieve.
-
----
-
-## What Does This Do?
-
-You give it URLs. It reads them, understands them, and gives you **LLM-ready context** you can feed directly to any model.
-
-1. **Crawls the URL** — Async HTTP/2 requests, 10 pages at once.
-2. **Extracts clean text** — Strips HTML, ads, nav bars, footers. Only keeps readable content.
-3. **Splits into chunks** — ~400 word overlapping sentence-aware chunks. Context preserved.
-4. **Embeds locally** — `all-MiniLM-L6-v2` runs on your machine. GPU auto-detected for 10–50x speed.
-5. **Stores in ChromaDB** — Persisted on disk. Survives restarts.
-6. **Retrieves by meaning** — Query in plain English → get the most relevant chunks, pre-formatted for your LLM.
-7. **Three-tier caching** — Never re-crawls, re-embeds, or re-processes duplicates.
+Web Intelligence is a Python library that crawls websites (or searches the web for you), extracts the useful text, and turns it into clean, formatted context that any LLM can read — OpenAI, Ollama, Groq, Anthropic, LangChain, or your own code. No API key needed for the core library.
 
 ---
 
-## Quick Start
+## What does it do?
+
+1. **You give it a URL** → it crawls the page, extracts clean text, splits it into chunks, embeds them, and stores them in a vector database.
+2. **You ask a question** → it finds the most relevant chunks and gives you LLM-ready context.
+3. **Or you give it just a question (no URL)** → it searches the web via DuckDuckGo, crawls the top results, indexes them, and gives you the answer context. One line of code.
+
+---
+
+## Install
 
 ```bash
 pip install web-intelligence
 ```
 
+The core library is lightweight (~50 MB). Pick optional extras based on what you need:
+
+```bash
+# Lightweight embeddings (recommended to start)
+pip install web-intelligence[fastembed]
+
+# GPU-accelerated embeddings (heavier, ~2 GB)
+pip install web-intelligence[gpu]
+
+# Web search (DuckDuckGo, no API key)
+pip install web-intelligence[search]
+
+# ChromaDB vector store (production-grade persistence)
+pip install web-intelligence[chromadb]
+
+# REST API server
+pip install web-intelligence[server]
+
+# Everything at once
+pip install web-intelligence[all]
+```
+
+---
+
+## Quick Start
+
+### Index a website and ask questions
+
 ```python
 from web_intelligence import FastPipeline
 
 pipeline = FastPipeline()
 
-# Index a webpage
+# Crawl and index a page
 pipeline.index_url("https://en.wikipedia.org/wiki/Python_(programming_language)")
 
-# Get LLM-ready context
-ctx = pipeline.retrieve("what is python used for")
-
-# Feed to ANY LLM — the library doesn't care which one you use
-print(ctx.context_text)     # formatted text you paste into any prompt
-print(ctx.sources)          # source URLs for citations
-messages = ctx.as_messages()  # OpenAI-compatible messages format
+# Ask a question — get formatted context for any LLM
+ctx = pipeline.retrieve("what is python used for?")
+print(ctx.context_text)     # clean text, ready for any LLM
+print(ctx.sources)          # source URLs
+messages = ctx.as_messages() # OpenAI-compatible message format
 ```
 
----
+### Search the web (no URL needed)
 
-## Use With Any LLM
-
-### With Ollama (free, local)
 ```python
 from web_intelligence import FastPipeline
-import requests
 
 pipeline = FastPipeline()
-pipeline.index_url("https://docs.python.org/3/tutorial/")
 
-ctx = pipeline.retrieve("how do I handle errors in python")
-
-# Ollama API
-response = requests.post("http://localhost:11434/api/chat", json={
-    "model": "llama3.2",
-    "messages": ctx.as_messages(),  # ready-made messages
-    "stream": False
-})
-print(response.json()["message"]["content"])
+# One line: searches DuckDuckGo → crawls top results → indexes → retrieves
+ctx = pipeline.search_web("latest features in Python 3.12")
+print(ctx.context_text)
 ```
 
-### With OpenAI
+### Use with any LLM (Groq + LangChain example)
+
 ```python
-from openai import OpenAI
+from web_intelligence import FastPipeline
+from langchain_groq import ChatGroq
+from dotenv import load_dotenv
 
-client = OpenAI()  # uses OPENAI_API_KEY env var
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=ctx.as_messages()
-)
-print(response.choices[0].message.content)
+load_dotenv()
+
+pipeline = FastPipeline()
+ctx = pipeline.search_web("what is FastAPI framework")
+
+llm = ChatGroq(model="llama-3.3-70b-versatile")
+response = llm.invoke(ctx.as_messages())
+print(response.content)
 ```
 
-### With Anthropic
-```python
-import anthropic
-
-client = anthropic.Anthropic()
-msgs = ctx.as_messages()
-response = client.messages.create(
-    model="claude-sonnet-4-20250514",
-    system=msgs[0]["content"],
-    messages=[{"role": "user", "content": msgs[1]["content"]}]
-)
-print(response.content[0].text)
-```
-
-### With LiteLLM (any provider)
-```python
-from litellm import completion
-
-response = completion(
-    model="ollama/llama3.2",  # or "gpt-4o", "claude-sonnet-4-20250514", etc.
-    messages=ctx.as_messages()
-)
-print(response.choices[0].message.content)
-```
-
-### Manual prompt injection (any LLM)
-```python
-context = pipeline.get_context_for_llm("how does auth work")
-prompt = f"Based on this context:\n{context}\n\nQuestion: how does auth work?"
-# send `prompt` to literally any LLM
-```
-
----
-
-## Batch Indexing
+### Index multiple pages at once
 
 ```python
 urls = [
-    "https://python.org/about/",
-    "https://docs.python.org/3/library/asyncio.html",
-    "https://realpython.com/async-io-python/",
+    "https://docs.python.org/3/tutorial/index.html",
+    "https://fastapi.tiangolo.com/",
+    "https://docs.pydantic.dev/latest/",
 ]
-
-results = pipeline.index_batch(urls)  # all crawled concurrently
-
-# Search across everything
-ctx = pipeline.retrieve("how does async work in python", limit=5)
+results = pipeline.index_batch(urls)
 ```
 
 ---
 
-## Document Management
+## How It Works (Step by Step)
 
-```python
-# List everything indexed
-docs = pipeline.list_documents()
-for d in docs:
-    print(f"{d['title']} — {d['chunk_count']} chunks — {d['url']}")
+### When you give it a URL (`index_url`):
+1. **Crawl** — Fetches the page using HTTP/2 (with retry, rate limiting, robots.txt).
+2. **Extract** — Strips HTML, ads, navbars. Keeps only the useful article text.
+3. **Chunk** — Splits the text into overlapping pieces (~400 words each).
+4. **Embed** — Converts each chunk into a vector (a list of numbers) that captures its meaning.
+5. **Store** — Saves the vectors in a vector database for fast search.
 
-# Get full text of a document
-doc = pipeline.get_document("doc-id-here")
-print(doc["full_text"])
+### When you ask a question (`retrieve`):
+1. **Embed the question** — Converts your question into a vector.
+2. **Search** — Finds the stored chunks most similar to your question.
+3. **Format** — Packages the top results into clean, formatted text with source URLs.
+4. **Return** — Gives you a `RetrievedContext` object with `.context_text`, `.sources`, and `.as_messages()`.
 
-# Delete a document
-pipeline.delete_document("doc-id-here")
+### When you search the web (`search_web`):
+1. **Search DuckDuckGo** — Finds the top web pages for your question.
+2. **Crawl** those pages.
+3. **Extract + Chunk + Embed + Store** (same as above).
+4. **Retrieve** — Searches the freshly indexed content and returns context.
 
-# Delete by URL
-pipeline.delete_url("https://example.com/old-page")
-```
-
----
-
-## REST API
-
-Start the server so any app or LLM agent can query your indexed content over HTTP:
-
-```bash
-pip install web-intelligence[server]
-python -m web_intelligence.server
-# or
-python main.py serve
-```
-
-### Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/index` | Index a single URL |
-| POST | `/index/batch` | Index multiple URLs |
-| POST | `/search` | Raw semantic search |
-| POST | `/retrieve` | **Get LLM-ready context** |
-| GET | `/documents` | List indexed documents |
-| GET | `/documents/{id}` | Get a specific document |
-| DELETE | `/documents/{id}` | Delete a document |
-| GET | `/stats` | Pipeline statistics |
-| GET | `/health` | Health check |
-
-### Example: retrieve context via API
-
-```bash
-curl -X POST http://localhost:8000/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{"query": "how does python handle memory", "format": "numbered"}'
-```
-
-Response includes `context_text` (string to inject into prompts) and `messages` (OpenAI-compatible chat format).
-
----
-
-## Context Formats
-
-Choose the output format that works best for your LLM:
-
-```python
-# Plain text — simple concatenation
-ctx = pipeline.retrieve("query", format="plain")
-
-# Numbered sources — citations like [Source 1], [Source 2]
-ctx = pipeline.retrieve("query", format="numbered")
-
-# Structured XML — best for Claude, GPT-4
-ctx = pipeline.retrieve("query", format="structured")
-```
-
-Each returns a `RetrievedContext` with:
-- `.context_text` — formatted string
-- `.sources` — list of source URLs + titles
-- `.as_messages()` — OpenAI-compatible messages list
-- `.to_dict()` — JSON-serializable dict
-- `.total_words`, `.total_chunks` — metadata
-
----
-
-## CLI
-
-```bash
-python main.py index https://example.com
-python main.py index https://site1.com https://site2.com
-python main.py search "what is python"
-python main.py retrieve "how does async work"
-python main.py documents
-python main.py delete <doc_id>
-python main.py stats
-python main.py serve
-python main.py clear
-```
+All in one line of code.
 
 ---
 
@@ -232,142 +135,109 @@ python main.py clear
 ```python
 from web_intelligence import FastPipeline, Config
 
-# Use defaults (all configurable via env vars)
-pipeline = FastPipeline()
-
-# Or override programmatically
 config = Config()
-config.chunker.chunk_size = 500
-config.chunker.chunk_overlap = 75
-config.embedding.model_name = "all-mpnet-base-v2"
+config.chunker.chunk_size = 500           # words per chunk
+config.chunker.chunk_overlap = 75         # overlap between chunks
+config.embedding.model_name = "all-mpnet-base-v2"  # better accuracy
+config.crawler.max_retries = 5            # more retries
 
 pipeline = FastPipeline(config=config)
+```
 
-# Quick overrides
+Or use environment variables (in `.env` file):
+
+```env
+WI_CHUNK_SIZE=500
+WI_EMBEDDING_MODEL=all-mpnet-base-v2
+WI_CRAWLER_MAX_RETRIES=5
+WI_SERVER_PORT=9000
+```
+
+---
+
+## Pluggable Components
+
+Swap out any component:
+
+```python
+from web_intelligence import FastPipeline
+from web_intelligence.embedders import FastEmbedEmbedder
+from web_intelligence.vector_stores import NumpyVectorStore
+
 pipeline = FastPipeline(
-    storage_path="./my_data",
-    use_gpu=True,
-    embedding_model="all-MiniLM-L6-v2",
-    cache_enabled=True,
+    embedder=FastEmbedEmbedder(),             # lightweight, no GPU
+    vector_store=NumpyVectorStore(),          # no ChromaDB needed
 )
 ```
 
-### Environment Variables
+Available embedders: `SentenceTransformerEmbedder`, `FastEmbedEmbedder`, `OpenAIEmbedder`, `OllamaEmbedder`
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WI_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model |
-| `WI_EMBEDDING_DEVICE` | auto | `cuda` or `cpu` |
-| `WI_CHUNK_SIZE` | `400` | Words per chunk |
-| `WI_CHUNK_OVERLAP` | `50` | Overlap between chunks |
-| `WI_VECTOR_STORE_PATH` | `./data/chroma` | ChromaDB storage |
-| `WI_CRAWLER_MAX_CONCURRENT` | `10` | Max parallel requests |
-| `WI_CRAWLER_TIMEOUT` | `15` | Request timeout (seconds) |
-| `WI_CACHE_ENABLED` | `true` | Enable/disable caching |
-| `WI_SERVER_PORT` | `8000` | API server port |
+Available vector stores: `ChromaVectorStore`, `NumpyVectorStore`
+
+Available search providers: `DuckDuckGoSearchProvider`
 
 ---
 
-## Performance
-
-| Operation | Speed | Notes |
-|-----------|-------|-------|
-| Crawling 10 URLs | ~5s total | Async + concurrent |
-| Embedding (GPU) | ~50ms per 100 chunks | CUDA auto-detected |
-| Embedding (CPU) | ~500ms per 100 chunks | Fallback |
-| Search | ~10ms | Semantic similarity |
-| Cached URL lookup | <1ms | Instant |
-
----
-
-## API Reference
-
-### `FastPipeline`
-
-| Method | Description |
-|--------|-------------|
-| `index_url(url)` | Crawl and index a single URL |
-| `index_batch(urls)` | Crawl and index multiple URLs concurrently |
-| `search(query, limit, filter, min_score)` | Raw semantic search → list of chunk dicts |
-| `retrieve(query, limit, format, max_context_words)` | **LLM-ready context** → `RetrievedContext` |
-| `get_context_for_llm(query)` | Shorthand → returns context string directly |
-| `list_documents()` | List all indexed documents |
-| `get_document(doc_id)` | Get full text + chunks for a document |
-| `delete_document(doc_id)` | Delete a document |
-| `delete_url(url)` | Delete all content from a URL |
-| `stats()` | Pipeline statistics |
-| `clear_all()` | Delete everything |
-| `clear_caches()` | Clear caches only, keep indexed data |
-
----
-
-## Architecture
-
-```
-You give URLs
-      ↓
-Async Crawler (httpx, HTTP/2, 10 concurrent)
-      ↓
-HTML Extractor (trafilatura — strips ads, nav, noise)
-      ↓
-Smart Chunker (400-word overlapping sentence-aware chunks)
-      ↓
-FastEmbedder (sentence-transformers, GPU auto-detected, cached)
-      ↓
-ChromaDB Vector Store (persistent, local)
-      ↓
-Retrieve → LLM-ready context (plain / numbered / structured)
-      ↓
-YOU feed it to YOUR LLM (Ollama, OpenAI, Anthropic, anything)
-```
-
----
-
-## How Caching Works
-
-- **URL Cache** — Already indexed `python.org`? Calling `index_url("python.org")` again returns instantly.
-- **Content Cache** — Two URLs with identical text? Only indexed once. No duplicates.
-- **Embedding Cache** — Same text chunk? Reuses the saved vector. No GPU/CPU work repeated.
-
----
-
-## Installation from Source
+## REST API
 
 ```bash
-git clone https://github.com/yourusername/web-intelligence.git
-cd web-intelligence
-pip install -e ".[server,dev]"
+python main.py serve
 ```
 
-## Requirements
+Endpoints:
+- `POST /index` — Index a URL
+- `POST /index/batch` — Index multiple URLs
+- `POST /retrieve` — Get LLM-ready context
+- `POST /search-web` — Web search → context
+- `GET /documents` — List indexed documents
+- `GET /stats` — Pipeline statistics
+- `GET /health` — Health check
 
-- Python 3.10+
-- Optional: CUDA GPU for 10–50x faster embedding
-- Optional: `fastapi` + `uvicorn` for REST API (`pip install web-intelligence[server]`)
+---
+
+## CLI
+
+```bash
+python main.py index https://example.com
+python main.py search "what is python"
+python main.py retrieve "explain decorators"
+python main.py documents
+python main.py stats
+python main.py serve
+```
+
+---
+
+## Project Structure
+
+```
+web_intelligence/
+├── __init__.py              # Public API exports
+├── optimized_pipeline.py    # Core pipeline (crawl → embed → store → retrieve)
+├── config.py                # Configuration with env var support
+├── async_crawler.py         # HTTP/2 crawler with retry + rate limiting
+├── crawler.py               # Crawl result data class
+├── extractor.py             # HTML → clean text extraction
+├── chunker.py               # Text splitting into overlapping chunks
+├── context_formatter.py     # Formats search results for LLMs
+├── cache.py                 # URL + content + embedding caches
+├── server.py                # FastAPI REST server
+├── exceptions.py            # Custom exception types
+├── _logging.py              # Logging setup
+├── embedders/               # Pluggable embedding backends
+│   ├── sentence_transformer.py
+│   ├── fastembed_embedder.py
+│   ├── openai_embedder.py
+│   └── ollama_embedder.py
+├── vector_stores/           # Pluggable vector store backends
+│   ├── chroma_store.py
+│   └── numpy_store.py
+└── search_providers/        # Pluggable web search backends
+    └── duckduckgo_provider.py
+```
+
+---
 
 ## License
 
-MIT — free to use, modify, and distribute. See [LICENSE](LICENSE).
-
-## Changelog
-
-### v0.3.0
-- **LLM-agnostic retrieval** — `retrieve()` returns context for any LLM
-- **Context formatters** — plain, numbered, structured (XML) output
-- **OpenAI-compatible messages** — `ctx.as_messages()` works with any chat API
-- **Document management** — list, get, delete documents
-- **REST API** — full FastAPI server for HTTP access
-- **CLI** — index, search, retrieve, serve from terminal
-- **Configuration system** — env vars + programmatic config
-- **Metadata filtering** — filter search by URL, domain, etc.
-- **Cleaned dependencies** — no forced LLM libraries
-
-### v0.2.0
-- Async HTTP/2 crawling
-- Three-tier caching
-- GPU acceleration
-- Sentence-aware chunking
-- Content deduplication
-
-### v0.1.0
-- Initial release
+MIT

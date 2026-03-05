@@ -4,11 +4,11 @@ import re
 
 @dataclass
 class Chunk:
-        text: str
-        chunk_index: int
-        token_count: int
-        doc_id: str
-        url: str
+    text: str
+    chunk_index: int
+    word_count: int
+    doc_id: str
+    url: str
 
 
 def split_into_sentences(text: str) -> List[str]:
@@ -57,7 +57,7 @@ def chunk_text(text: str, document_id: str, url: str,
                 chunk_index=len(chunks),
                 doc_id=document_id,
                 url=url,
-                token_count=current_word_count
+                word_count=current_word_count
             ))
             
             overlap_sentences = []
@@ -83,7 +83,7 @@ def chunk_text(text: str, document_id: str, url: str,
             chunk_index=len(chunks),
             doc_id=document_id,
             url=url,
-            token_count=current_word_count
+            word_count=current_word_count
         ))
     
     return chunks

@@ -1,13 +1,28 @@
+# Core (always required)
 httpx[http2]
 beautifulsoup4
 trafilatura
-sentence-transformers
-chromadb
-torch
+numpy
 
-# Optional: REST API server
-fastapi
-uvicorn
+# Embeddings — pick ONE:
+# sentence-transformers   # GPU-accelerated (~2 GB)
+# torch                   # required by sentence-transformers
+# fastembed               # lightweight ONNX (~200 MB)
 
-# Optional: dev
-python-dotenv
+# Vector store (optional — falls back to NumPy if missing)
+# chromadb
+
+# Web search (optional — enables pipeline.search_web())
+# duckduckgo-search
+
+# REST API server (optional — enables web_intelligence.server)
+# fastapi
+# uvicorn
+
+# Jupyter / async loop compat (optional)
+# nest_asyncio
+
+# Dev
+# python-dotenv
+# pytest
+# ruff
