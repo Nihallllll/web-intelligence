@@ -1,15 +1,3 @@
-"""
-Fast text embedding with GPU acceleration and caching support.
-
-.. deprecated:: 0.4.0
-    Import from ``web_intelligence.embedders`` instead::
-
-        from web_intelligence.embedders import SentenceTransformerEmbedder
-        embedder = SentenceTransformerEmbedder()
-
-    This module is kept for backward compatibility.
-"""
-
 from sentence_transformers import SentenceTransformer
 from typing import List, Optional, Dict
 import torch
@@ -26,15 +14,12 @@ warnings.warn(
 
 
 class FastEmbedder:
-    """Text embedder with GPU support and persistent embedding cache."""
-    
     def __init__(
         self, 
         model_name: str = "all-MiniLM-L6-v2",
         device: Optional[str] = None,
         use_cache: bool = True
     ):
-        """Initialize embedder. device: 'cuda', 'cpu', or None for auto-detect."""
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             

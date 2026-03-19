@@ -1,19 +1,3 @@
-"""
-REST API server for Web Intelligence.
-
-Exposes the pipeline over HTTP so any LLM, app, or script can:
-  - Index URLs (POST /index)
-  - Search content (POST /search)
-  - Retrieve LLM-ready context (POST /retrieve)
-  - Search the web (POST /search-web)
-  - Manage documents (GET/DELETE /documents)
-
-Start with:
-    python -m web_intelligence.server
-    # or
-    web-intelligence serve
-"""
-
 from __future__ import annotations
 
 import logging
@@ -29,10 +13,6 @@ from .optimized_pipeline import FastPipeline
 
 logger = logging.getLogger("web_intelligence.server")
 
-
-# ---------------------------------------------------------------------------
-# Request / Response models
-# ---------------------------------------------------------------------------
 
 class IndexURLRequest(BaseModel):
     url: str = Field(..., description="URL to crawl and index")
@@ -74,10 +54,6 @@ class DeleteURLRequest(BaseModel):
     url: str
 
 
-# ---------------------------------------------------------------------------
-# App factory
-# ---------------------------------------------------------------------------
-
 _pipeline: Optional[FastPipeline] = None
 
 
@@ -90,7 +66,6 @@ def get_pipeline() -> FastPipeline:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize pipeline on startup."""
     get_pipeline()
     yield
 
@@ -115,10 +90,6 @@ app.add_middleware(
 )
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -126,7 +97,6 @@ def health():
 
 @app.post("/index")
 async def index_url(req: IndexURLRequest):
-    """Crawl and index a single URL."""
     pipeline = get_pipeline()
     result = await pipeline.index_url_async(req.url, skip_cache=req.skip_cache)
     return result
@@ -134,7 +104,6 @@ async def index_url(req: IndexURLRequest):
 
 @app.post("/index/batch")
 async def index_batch(req: IndexBatchRequest):
-    """Crawl and index multiple URLs concurrently."""
     pipeline = get_pipeline()
     results = await pipeline.index_batch_async(req.urls, skip_cached=req.skip_cached)
     return {
@@ -146,7 +115,6 @@ async def index_batch(req: IndexBatchRequest):
 
 @app.post("/search")
 def search(req: SearchRequest):
-    """Raw semantic search. Returns ranked chunks with scores."""
     pipeline = get_pipeline()
     results = pipeline.search(
         req.query,
@@ -159,11 +127,6 @@ def search(req: SearchRequest):
 
 @app.post("/retrieve")
 def retrieve(req: RetrieveRequest):
-    """
-    Retrieve LLM-ready context for a question.
-
-    Returns formatted context text and OpenAI-compatible messages.
-    """
     pipeline = get_pipeline()
     ctx = pipeline.retrieve(
         req.query,
@@ -180,11 +143,6 @@ def retrieve(req: RetrieveRequest):
 
 @app.post("/search-web")
 def search_web(req: SearchWebRequest):
-    """
-    Search the web → crawl → index → retrieve LLM-ready context.
-
-    One endpoint to go from a question to context.
-    """
     pipeline = get_pipeline()
     try:
         ctx = pipeline.search_web(
@@ -241,18 +199,12 @@ def get_stats():
 
 @app.post("/clear")
 def clear_all():
-    """Clear ALL indexed data and caches. Use with caution."""
     pipeline = get_pipeline()
     pipeline.clear_all()
     return {"cleared": True}
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
 def start_server(host: str = None, port: int = None, reload: bool = None):
-    """Start the API server."""
     import uvicorn
     config = default_config().server
     uvicorn.run(

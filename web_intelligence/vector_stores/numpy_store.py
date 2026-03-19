@@ -1,10 +1,3 @@
-"""
-NumPy-based vector store — zero extra dependencies, works everywhere.
-
-Uses cosine similarity search and optional pickle persistence.
-Good for small-to-medium datasets (up to ~100k chunks).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -18,14 +11,6 @@ logger = logging.getLogger("web_intelligence.vector_stores.numpy")
 
 
 class NumpyVectorStore:
-    """
-    In-memory vector store backed by NumPy with optional pickle persistence.
-
-    Args:
-        persist_path: Path to save/load the store.  ``None`` = in-memory only.
-        collection_name: Logical name (for compatibility; not used by numpy).
-    """
-
     def __init__(
         self,
         persist_path: Optional[str] = None,
@@ -34,22 +19,16 @@ class NumpyVectorStore:
         self.persist_path = Path(persist_path) if persist_path else None
         self.collection_name = collection_name
 
-        # Internal storage
-        self._vectors: np.ndarray | None = None  # shape (N, D)
+        self._vectors: np.ndarray | None = None
         self._ids: list[str] = []
         self._metadatas: list[Dict] = []
         self._documents: list[str] = []
 
-        # Load from disk if available
         if self.persist_path and self.persist_path.exists():
             self._load()
             logger.info("Loaded %d chunks from %s", len(self._ids), self.persist_path)
         else:
             logger.info("NumpyVectorStore initialized (empty)")
-
-    # ------------------------------------------------------------------ #
-    # Persistence helpers
-    # ------------------------------------------------------------------ #
 
     def _save(self) -> None:
         if self.persist_path is None:
@@ -71,10 +50,6 @@ class NumpyVectorStore:
         self._ids = data["ids"]
         self._metadatas = data["metadatas"]
         self._documents = data.get("documents", [""] * len(self._ids))
-
-    # ------------------------------------------------------------------ #
-    # Core API
-    # ------------------------------------------------------------------ #
 
     def add(
         self,
@@ -107,7 +82,6 @@ class NumpyVectorStore:
 
         q = np.array(query_vector, dtype=np.float32)
 
-        # Cosine similarity
         norms = np.linalg.norm(self._vectors, axis=1)
         q_norm = np.linalg.norm(q)
         if q_norm == 0:
@@ -115,14 +89,12 @@ class NumpyVectorStore:
 
         similarities = (self._vectors @ q) / (norms * q_norm + 1e-10)
 
-        # Apply metadata filter
         mask = np.ones(len(self._ids), dtype=bool)
         if where_filter:
             for key, value in where_filter.items():
                 mask &= np.array([m.get(key) == value for m in self._metadatas])
             similarities = np.where(mask, similarities, -1.0)
 
-        # Top-k
         top_k = min(limit, len(self._ids))
         top_indices = np.argsort(similarities)[::-1][:top_k]
 
@@ -211,12 +183,7 @@ class NumpyVectorStore:
         self._documents = []
         self._save()
 
-    # ------------------------------------------------------------------ #
-    # Internal
-    # ------------------------------------------------------------------ #
-
     def _remove_indices(self, indices: List[int]) -> None:
-        """Remove items at given indices from all internal lists."""
         keep = sorted(set(range(len(self._ids))) - set(indices))
         self._ids = [self._ids[i] for i in keep]
         self._metadatas = [self._metadatas[i] for i in keep]

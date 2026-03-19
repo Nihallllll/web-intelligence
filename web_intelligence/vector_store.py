@@ -1,15 +1,3 @@
-"""
-Vector store backed by ChromaDB with document management.
-
-.. deprecated:: 0.4.0
-    Import from ``web_intelligence.vector_stores`` instead::
-
-        from web_intelligence.vector_stores import ChromaVectorStore
-        store = ChromaVectorStore()
-
-    This module is kept for backward compatibility.
-"""
-
 import chromadb
 from typing import List, Dict, Optional
 
@@ -24,8 +12,6 @@ warnings.warn(
 
 
 class VectorStore:
-    """Persistent vector store with search, document management, and filtering."""
-
     def __init__(self, persist_directory: str = "./data/chroma",
                  collection_name: str = "web_content"):
         self.persist_directory = persist_directory
@@ -34,7 +20,6 @@ class VectorStore:
         self.collection = self.client.get_or_create_collection(collection_name)
 
     def add(self, vectors: List[List[float]], metadatas: List[Dict], ids: List[str]):
-        """Add vectors with metadata to the store."""
         self.collection.add(
             embeddings=vectors,
             metadatas=metadatas,
@@ -44,18 +29,6 @@ class VectorStore:
     def search(self, query_vector: List[float], limit: int = 5,
                filter: Optional[Dict] = None,
                min_score: float = 0.0) -> List[Dict]:
-        """
-        Semantic search. Returns ranked list of result dicts.
-
-        Args:
-            query_vector: Query embedding.
-            limit: Max results to return.
-            filter: ChromaDB where-filter dict (e.g. {"url": "https://..."}).
-            min_score: Minimum similarity score (0-1) to include.
-
-        Returns:
-            List of dicts with keys: id, text, source, score, metadata.
-        """
         kwargs = {
             "query_embeddings": [query_vector],
             "n_results": limit,
@@ -80,17 +53,7 @@ class VectorStore:
 
         return formatted
 
-    # ------------------------------------------------------------------
-    # Document management
-    # ------------------------------------------------------------------
-
     def list_documents(self) -> List[Dict]:
-        """
-        List all indexed documents (grouped by doc_id).
-
-        Returns:
-            List of dicts with url, title, doc_id, chunk_count, indexed_at.
-        """
         all_data = self.collection.get()
         if not all_data["ids"]:
             return []
@@ -113,12 +76,6 @@ class VectorStore:
         return sorted(docs.values(), key=lambda d: d["indexed_at"], reverse=True)
 
     def get_document(self, doc_id: str) -> Optional[Dict]:
-        """
-        Get all chunks for a specific document.
-
-        Returns:
-            Dict with doc metadata and list of chunks, or None.
-        """
         results = self.collection.get(where={"doc_id": doc_id})
         if not results["ids"]:
             return None
@@ -145,12 +102,6 @@ class VectorStore:
         }
 
     def delete_document(self, doc_id: str) -> bool:
-        """
-        Delete all chunks belonging to a document.
-
-        Returns:
-            True if chunks were found and deleted.
-        """
         results = self.collection.get(where={"doc_id": doc_id})
         if not results["ids"]:
             return False
@@ -158,12 +109,6 @@ class VectorStore:
         return True
 
     def delete_by_url(self, url: str) -> int:
-        """
-        Delete all chunks from a specific URL.
-
-        Returns:
-            Number of chunks deleted.
-        """
         results = self.collection.get(where={"url": url})
         if not results["ids"]:
             return 0
@@ -172,10 +117,8 @@ class VectorStore:
         return count
 
     def count(self) -> int:
-        """Return total number of chunks in the store."""
         return self.collection.count()
 
     def clear(self):
-        """Delete all data from the collection."""
         self.client.delete_collection(self.collection_name)
         self.collection = self.client.get_or_create_collection(self.collection_name)

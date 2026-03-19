@@ -1,5 +1,8 @@
-"""
-Web Intelligence CLI — crawl, index, search, and serve.
+import sys
+import json
+
+HELP_TEXT = """\
+Web Intelligence CLI
 
 Usage:
     python main.py index <url>             Index a single URL
@@ -13,15 +16,12 @@ Usage:
     python main.py clear                   Clear all data
 """
 
-import sys
-import json
-
 
 def main():
     args = sys.argv[1:]
 
     if not args or args[0] in ("-h", "--help", "help"):
-        print(__doc__.strip())
+        print(HELP_TEXT.strip())
         return
 
     command = args[0].lower()
@@ -123,7 +123,7 @@ def main():
 
     else:
         print(f"Unknown command: {command}")
-        print(__doc__.strip())
+        print(HELP_TEXT.strip())
 
 
 if __name__ == "__main__":

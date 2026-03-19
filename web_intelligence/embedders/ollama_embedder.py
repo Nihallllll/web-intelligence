@@ -1,10 +1,3 @@
-"""
-Ollama embedding backend (local LLM embeddings, no cloud, no API key).
-
-Requires a running Ollama server with an embedding model pulled:
-    ollama pull nomic-embed-text
-"""
-
 from __future__ import annotations
 
 import logging
@@ -16,16 +9,6 @@ logger = logging.getLogger("web_intelligence.embedders.ollama")
 
 
 class OllamaEmbedder:
-    """
-    Embedding backend using a local Ollama server.
-
-    Args:
-        model: Ollama model name (default ``"nomic-embed-text"``).
-        base_url: Ollama API base URL (default ``http://localhost:11434``).
-        use_cache: Persist embeddings to disk.
-        cache_dir: Directory for the embedding cache.
-    """
-
     def __init__(
         self,
         model: str = "nomic-embed-text",
@@ -39,10 +22,8 @@ class OllamaEmbedder:
         self.model_name: str = model
         self._client = httpx.Client(timeout=60)
 
-        # Probe to get dimension
         self.dimension: int = self._get_dimension()
 
-        # Cache
         self.use_cache = use_cache
         self.cache: Optional[EmbeddingCache] = EmbeddingCache(cache_dir=cache_dir) if use_cache else None
         self._cache_hits = 0
@@ -52,7 +33,6 @@ class OllamaEmbedder:
                      model, self.dimension, base_url)
 
     def _get_dimension(self) -> int:
-        """Get embedding dimension by sending a probe request."""
         resp = self._client.post(
             f"{self._base_url}/api/embed",
             json={"model": self.model_name, "input": ["hello"]},
@@ -62,7 +42,6 @@ class OllamaEmbedder:
         return len(data["embeddings"][0])
 
     def _embed_via_api(self, texts: List[str]) -> List[List[float]]:
-        """Send texts to Ollama /api/embed endpoint."""
         resp = self._client.post(
             f"{self._base_url}/api/embed",
             json={"model": self.model_name, "input": texts},
@@ -70,10 +49,6 @@ class OllamaEmbedder:
         resp.raise_for_status()
         data = resp.json()
         return data["embeddings"]
-
-    # ------------------------------------------------------------------ #
-    # Core API
-    # ------------------------------------------------------------------ #
 
     def embed(self, text: str) -> List[float]:
         if self.cache:
@@ -119,7 +94,6 @@ class OllamaEmbedder:
         if not texts_to_embed:
             return results
 
-        # Process in batches (Ollama can handle multiple inputs)
         for start in range(0, len(texts_to_embed), batch_size):
             batch = texts_to_embed[start : start + batch_size]
             vectors = self._embed_via_api(batch)
@@ -131,10 +105,6 @@ class OllamaEmbedder:
                     self.cache.set(texts_to_embed[start + j], vec)
 
         return results
-
-    # ------------------------------------------------------------------ #
-    # Cache management
-    # ------------------------------------------------------------------ #
 
     def get_cache_stats(self) -> Dict:
         total = self._cache_hits + self._cache_misses

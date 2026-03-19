@@ -8,6 +8,13 @@ wheels/
 .env
 # Virtual environments
 .venv
+
+# Runtime data
 data
 old(v0)
+
+# Test cache
+.pytest_cache
+
+# Env
 .env

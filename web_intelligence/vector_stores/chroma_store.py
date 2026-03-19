@@ -1,9 +1,3 @@
-"""
-ChromaDB vector store backend (persistent, production-grade).
-
-Install:  pip install chromadb
-"""
-
 from __future__ import annotations
 
 import logging
@@ -13,14 +7,6 @@ logger = logging.getLogger("web_intelligence.vector_stores.chroma")
 
 
 class ChromaVectorStore:
-    """
-    Persistent vector store backed by ChromaDB.
-
-    Args:
-        persist_directory: Path to store ChromaDB data on disk.
-        collection_name: Name of the ChromaDB collection.
-    """
-
     def __init__(
         self,
         persist_directory: str = "./data/chroma",
@@ -47,7 +33,6 @@ class ChromaVectorStore:
         ids: List[str],
         documents: Optional[List[str]] = None,
     ) -> None:
-        """Add vectors with metadata. Uses ChromaDB ``documents`` field for text."""
         kwargs: Dict = {
             "embeddings": vectors,
             "metadatas": metadatas,
@@ -75,13 +60,11 @@ class ChromaVectorStore:
 
         formatted = []
         for i in range(len(results["ids"][0])):
-            # ChromaDB distance → similarity score
             score = 1 - results["distances"][0][i]
             if score < min_score:
                 continue
 
             meta = results["metadatas"][0][i]
-            # Text can come from documents field or metadata fallback
             text = ""
             if results.get("documents") and results["documents"][0]:
                 text = results["documents"][0][i] or ""

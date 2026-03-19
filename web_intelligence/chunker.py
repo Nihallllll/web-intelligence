@@ -12,32 +12,17 @@ class Chunk:
 
 
 def split_into_sentences(text: str) -> List[str]:
-    """Split text into sentences on sentence-ending punctuation."""
     sentence_endings = r'(?<=[.!?])\s+'
     sentences = re.split(sentence_endings, text)
     return [s.strip() for s in sentences if s.strip()]
 
 
 def count_words(text: str) -> int:
-    """Return the word count of text."""
     return len(text.split())
 
 
 def chunk_text(text: str, document_id: str, url: str, 
                chunk_size: int = 400, overlap: int = 50) -> List[Chunk]:
-    """
-    Split text into overlapping chunks of approximately chunk_size words.
-
-    Args:
-        text: Source text to split
-        document_id: Identifier for the parent document
-        url: Source URL
-        chunk_size: Target word count per chunk
-        overlap: Words to repeat between consecutive chunks
-
-    Returns:
-        List of Chunk objects
-    """
     sentences = split_into_sentences(text)
     
     if not sentences:
@@ -90,5 +75,4 @@ def chunk_text(text: str, document_id: str, url: str,
 
 
 def tokenizer(text: str) -> List[str]:
-    """Simple word splitter."""
     return text.split()

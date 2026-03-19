@@ -1,8 +1,3 @@
-"""
-Async web crawler with HTTP/2, retry with exponential backoff,
-rate limiting, and optional robots.txt checking.
-"""
-
 import asyncio
 import logging
 from datetime import datetime
@@ -16,7 +11,6 @@ from .crawler import CrawlObject
 
 logger = logging.getLogger("web_intelligence.crawler")
 
-# Module-level robots.txt cache (domain → RobotFileParser)
 _robots_cache: dict[str, RobotFileParser] = {}
 
 _DEFAULT_HEADERS = {
@@ -30,13 +24,7 @@ _DEFAULT_HEADERS = {
 }
 
 
-# ------------------------------------------------------------------ #
-# robots.txt helpers
-# ------------------------------------------------------------------ #
-
-
 async def _check_robots(url: str, client: httpx.AsyncClient, user_agent: str) -> bool:
-    """Return True if the URL is allowed by robots.txt (or if check fails)."""
     parsed = urlparse(url)
     domain = f"{parsed.scheme}://{parsed.netloc}"
 
@@ -51,13 +39,7 @@ async def _check_robots(url: str, client: httpx.AsyncClient, user_agent: str) ->
         _robots_cache[domain] = rp
         return rp.can_fetch(user_agent, url)
     except Exception:
-        # If we can't fetch robots.txt, assume allowed
         return True
-
-
-# ------------------------------------------------------------------ #
-# Core async crawl
-# ------------------------------------------------------------------ #
 
 
 async def crawl_url_async(
@@ -68,20 +50,8 @@ async def crawl_url_async(
     respect_robots: bool = True,
     rate_limiter: Optional[asyncio.Semaphore] = None,
 ) -> CrawlObject:
-    """
-    Fetch a single URL with retry and exponential backoff.
-
-    Args:
-        url: Target URL.
-        client: Shared httpx async client.
-        timeout: Request timeout in seconds.
-        max_retries: Number of retries on failure/5xx/429.
-        respect_robots: Check robots.txt before crawling.
-        rate_limiter: Optional semaphore for rate limiting.
-    """
     user_agent = _DEFAULT_HEADERS["User-Agent"]
 
-    # robots.txt check
     if respect_robots:
         if not await _check_robots(url, client, user_agent):
             logger.info("Blocked by robots.txt: %s", url)
@@ -104,14 +74,12 @@ async def crawl_url_async(
                         url, headers=_DEFAULT_HEADERS, timeout=timeout, follow_redirects=True
                     )
                 finally:
-                    # Release after a small delay for rate limiting
                     rate_limiter.release()
             else:
                 response = await client.get(
                     url, headers=_DEFAULT_HEADERS, timeout=timeout, follow_redirects=True
                 )
 
-            # Retry on 429 (rate limited) or 5xx (server error)
             if response.status_code == 429 or response.status_code >= 500:
                 wait = 2 ** attempt
                 retry_after = response.headers.get("Retry-After")
@@ -155,11 +123,6 @@ async def crawl_url_async(
     )
 
 
-# ------------------------------------------------------------------ #
-# Batch crawl
-# ------------------------------------------------------------------ #
-
-
 async def crawl_urls_batch(
     urls: List[str],
     max_concurrent: int = 10,
@@ -168,23 +131,11 @@ async def crawl_urls_batch(
     requests_per_second: float = 0.0,
     respect_robots: bool = True,
 ) -> List[CrawlObject]:
-    """
-    Crawl multiple URLs concurrently with rate limiting and retry.
-
-    Args:
-        urls: List of URLs to crawl.
-        max_concurrent: Max parallel connections.
-        timeout: Per-request timeout in seconds.
-        max_retries: Retries per URL on failure/5xx/429.
-        requests_per_second: Rate limit (0 = unlimited).
-        respect_robots: If True, check robots.txt before each domain.
-    """
     limits = httpx.Limits(
         max_connections=max_concurrent,
         max_keepalive_connections=max_concurrent,
     )
 
-    # Rate limiter: simple token-bucket via delayed semaphore
     rate_limiter: Optional[asyncio.Semaphore] = None
     if requests_per_second > 0:
         rate_limiter = asyncio.Semaphore(max(1, int(requests_per_second)))
@@ -210,11 +161,6 @@ async def crawl_urls_batch(
     return list(results)
 
 
-# ------------------------------------------------------------------ #
-# Sync wrapper
-# ------------------------------------------------------------------ #
-
-
 def crawl_urls_sync(
     urls: List[str],
     max_concurrent: int = 10,
@@ -223,7 +169,6 @@ def crawl_urls_sync(
     requests_per_second: float = 0.0,
     respect_robots: bool = True,
 ) -> List[CrawlObject]:
-    """Synchronous wrapper around crawl_urls_batch."""
     return asyncio.run(
         crawl_urls_batch(
             urls,

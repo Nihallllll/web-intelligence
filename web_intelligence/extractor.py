@@ -11,7 +11,6 @@ class ExtractedContent:
     published_date: Optional[str] = None
 
 def extract_content(html: str, url: str) -> ExtractedContent:
-    """Extract clean text and metadata from raw HTML."""
     text = trafilatura.extract(html, include_comments=False, include_tables=False)
     
     if not text:

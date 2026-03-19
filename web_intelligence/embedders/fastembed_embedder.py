@@ -1,9 +1,3 @@
-"""
-FastEmbed embedding backend (lightweight ONNX-based, no torch required).
-
-Install:  pip install fastembed
-"""
-
 from __future__ import annotations
 
 import logging
@@ -13,7 +7,6 @@ from ..cache import EmbeddingCache
 
 logger = logging.getLogger("web_intelligence.embedders.fastembed")
 
-# Map common sentence-transformers names → fastembed equivalents
 _MODEL_MAP = {
     "all-MiniLM-L6-v2": "BAAI/bge-small-en-v1.5",
     "all-mpnet-base-v2": "BAAI/bge-base-en-v1.5",
@@ -21,17 +14,6 @@ _MODEL_MAP = {
 
 
 class FastEmbedEmbedder:
-    """
-    Lightweight embedding backend using ``fastembed`` (ONNX Runtime).
-
-    ~200 MB total instead of ~2 GB for torch.  Good for CPU-only deployments.
-
-    Args:
-        model_name: A fastembed-compatible model name (e.g. ``"BAAI/bge-small-en-v1.5"``).
-        use_cache: Persist embeddings to disk.
-        cache_dir: Directory for the embedding cache.
-    """
-
     def __init__(
         self,
         model_name: str = "BAAI/bge-small-en-v1.5",
@@ -47,7 +29,6 @@ class FastEmbedEmbedder:
                 "Install with:  pip install fastembed"
             ) from exc
 
-        # Allow users to pass sentence-transformer model names
         resolved_name = _MODEL_MAP.get(model_name, model_name)
         if resolved_name != model_name:
             logger.info("Mapped model name '%s' → '%s'", model_name, resolved_name)
@@ -57,20 +38,14 @@ class FastEmbedEmbedder:
         self.model_name: str = resolved_name
         self.dimension: int = self._get_dimension()
 
-        # Cache
         self.use_cache = use_cache
         self.cache: Optional[EmbeddingCache] = EmbeddingCache(cache_dir=cache_dir) if use_cache else None
         self._cache_hits = 0
         self._cache_misses = 0
 
     def _get_dimension(self) -> int:
-        """Infer dimension by embedding a probe text."""
         probe = list(self._model.embed(["hello"]))[0]
         return len(probe)
-
-    # ------------------------------------------------------------------ #
-    # Core API
-    # ------------------------------------------------------------------ #
 
     def embed(self, text: str) -> List[float]:
         if self.cache:
@@ -126,10 +101,6 @@ class FastEmbedEmbedder:
                 self.cache.set(text, embedding)
 
         return results
-
-    # ------------------------------------------------------------------ #
-    # Cache management
-    # ------------------------------------------------------------------ #
 
     def get_cache_stats(self) -> Dict:
         total = self._cache_hits + self._cache_misses

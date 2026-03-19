@@ -1,19 +1,3 @@
-"""
-Web Intelligence Pipeline — crawl, extract, chunk, embed, store, and retrieve.
-
-This is the core library entry point. It fetches web content and makes it
-searchable via semantic search. The retrieved context is formatted so users
-can feed it directly to any LLM (Ollama, OpenAI, Anthropic, etc.).
-
-Now with:
-  - Pluggable embedders (sentence-transformers, fastembed, OpenAI, Ollama)
-  - Pluggable vector stores (ChromaDB, NumPy)
-  - Web search integration (DuckDuckGo)
-  - Async-safe (works in Jupyter, FastAPI, etc.)
-  - Proper logging (no print spam)
-  - Retry with backoff, rate limiting, robots.txt
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -42,19 +26,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("web_intelligence.pipeline")
 
 
-# ---------------------------------------------------------------------- #
-# Async-loop helpers: safe in Jupyter, FastAPI, threads, and vanilla scripts
-# ---------------------------------------------------------------------- #
-
-
 def _run_async(coro):
-    """
-    Run a coroutine from sync code, regardless of whether a loop is already running.
-
-    * No running loop → ``asyncio.run()``.
-    * Loop already running (Jupyter/FastAPI) → use ``nest_asyncio`` if available,
-      otherwise fall back to a background thread.
-    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -63,7 +35,6 @@ def _run_async(coro):
     if loop is None:
         return asyncio.run(coro)
 
-    # A loop is already running — try nest_asyncio first
     try:
         import nest_asyncio
         nest_asyncio.apply()
@@ -71,7 +42,6 @@ def _run_async(coro):
     except ImportError:
         pass
 
-    # Final fallback: run the coroutine in a new thread with its own loop
     import concurrent.futures
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -80,32 +50,6 @@ def _run_async(coro):
 
 
 class FastPipeline:
-    """
-    End-to-end pipeline: crawl URLs → extract text → embed → store → retrieve.
-
-    This library does NOT include an LLM. It gives you perfectly formatted
-    context that you feed to whatever LLM you want.
-
-    Quick start:
-        >>> pipeline = FastPipeline()
-        >>> pipeline.index_url("https://en.wikipedia.org/wiki/Python")
-        >>> ctx = pipeline.retrieve("what is python used for")
-        >>> print(ctx.context_text)        # feed to any LLM
-        >>> messages = ctx.as_messages()   # OpenAI-compatible format
-
-    Web search (searches the internet for you):
-        >>> ctx = pipeline.search_web("latest python features")
-        >>> print(ctx.context_text)
-
-    Pluggable components:
-        >>> from web_intelligence.embedders import OpenAIEmbedder
-        >>> from web_intelligence.vector_stores import NumpyVectorStore
-        >>> pipeline = FastPipeline(
-        ...     embedder=OpenAIEmbedder(api_key="sk-..."),
-        ...     vector_store=NumpyVectorStore(),
-        ... )
-    """
-
     def __init__(
         self,
         config: Optional[Config] = None,
@@ -118,13 +62,10 @@ class FastPipeline:
         cache_enabled: Optional[bool] = None,
         use_gpu: Optional[bool] = None,
         embedding_model: Optional[str] = None,
-        # Progress callback: fn(step: str, current: int, total: int)
         on_progress: Optional[Callable] = None,
     ):
-        # Deep copy config to avoid mutating the global/shared instance
         self.config = config.copy() if config else default_config()
 
-        # Apply quick overrides
         if storage_path is not None:
             self.config.vector_store.persist_directory = storage_path
         if cache_enabled is not None:
@@ -134,22 +75,18 @@ class FastPipeline:
 
         self.on_progress = on_progress
 
-        # ---- Embedder (pluggable) ----
         if embedder is not None:
             self.embedder = embedder
         else:
             self.embedder = self._auto_detect_embedder(use_gpu)
 
-        # ---- Vector store (pluggable) ----
         if vector_store is not None:
             self.vector_store = vector_store
         else:
             self.vector_store = self._auto_detect_vector_store()
 
-        # ---- Search provider (pluggable, optional) ----
-        self.search_provider = search_provider  # can be None
+        self.search_provider = search_provider
 
-        # ---- Caches ----
         self.url_cache = URLCache() if self.config.cache_enabled else None
         self.content_cache = ContentCache() if self.config.cache_enabled else None
 
@@ -167,12 +104,7 @@ class FastPipeline:
             type(self.vector_store).__name__,
         )
 
-    # ------------------------------------------------------------------ #
-    # Auto-detection helpers
-    # ------------------------------------------------------------------ #
-
     def _auto_detect_embedder(self, use_gpu: Optional[bool] = None):
-        """Pick the best available embedding backend."""
         from .embedders import auto_detect_embedder
 
         kwargs: dict = {
@@ -192,7 +124,6 @@ class FastPipeline:
         return auto_detect_embedder(**kwargs)
 
     def _auto_detect_vector_store(self):
-        """Pick the best available vector store backend."""
         from .vector_stores import auto_detect_vector_store
 
         return auto_detect_vector_store(
@@ -200,26 +131,23 @@ class FastPipeline:
             collection_name=self.config.vector_store.collection_name,
         )
 
-    # ------------------------------------------------------------------ #
-    # Indexing
-    # ------------------------------------------------------------------ #
-
     def index_url(self, url: str, skip_cache: bool = False) -> Dict:
-        """Index a single URL. Returns result dict."""
         if self.url_cache and not skip_cache:
             if self.url_cache.is_cached(url):
                 cached_data = self.url_cache.get(url)
-                logger.debug("Cache hit for %s", url)
-                self.stats_data["urls_cached"] += 1
-                return {
-                    "success": True,
-                    "url": url,
-                    "cached": True,
-                    "title": cached_data.get("data", {}).get("title", "Cached"),
-                    "chunks_count": cached_data.get("data", {}).get("chunks", 0),
-                    "doc_id": cached_data.get("data", {}).get("doc_id", ""),
-                    "indexed_at": cached_data["cached_at"],
-                }
+                doc_id = cached_data.get("data", {}).get("doc_id", "")
+                if doc_id and self.vector_store.get_document(doc_id) is not None:
+                    logger.debug("Cache hit for %s", url)
+                    self.stats_data["urls_cached"] += 1
+                    return {
+                        "success": True,
+                        "url": url,
+                        "cached": True,
+                        "title": cached_data.get("data", {}).get("title", "Cached"),
+                        "chunks_count": cached_data.get("data", {}).get("chunks", 0),
+                        "doc_id": doc_id,
+                        "indexed_at": cached_data["cached_at"],
+                    }
 
         results = _run_async(self._index_urls_async([url]))
         result = results[0]
@@ -235,20 +163,21 @@ class FastPipeline:
         return result
 
     async def index_url_async(self, url: str, skip_cache: bool = False) -> Dict:
-        """Async version of ``index_url`` — safe to call from FastAPI / Jupyter."""
         if self.url_cache and not skip_cache:
             if self.url_cache.is_cached(url):
                 cached_data = self.url_cache.get(url)
-                self.stats_data["urls_cached"] += 1
-                return {
-                    "success": True,
-                    "url": url,
-                    "cached": True,
-                    "title": cached_data.get("data", {}).get("title", "Cached"),
-                    "chunks_count": cached_data.get("data", {}).get("chunks", 0),
-                    "doc_id": cached_data.get("data", {}).get("doc_id", ""),
-                    "indexed_at": cached_data["cached_at"],
-                }
+                doc_id = cached_data.get("data", {}).get("doc_id", "")
+                if doc_id and self.vector_store.get_document(doc_id) is not None:
+                    self.stats_data["urls_cached"] += 1
+                    return {
+                        "success": True,
+                        "url": url,
+                        "cached": True,
+                        "title": cached_data.get("data", {}).get("title", "Cached"),
+                        "chunks_count": cached_data.get("data", {}).get("chunks", 0),
+                        "doc_id": doc_id,
+                        "indexed_at": cached_data["cached_at"],
+                    }
 
         results = await self._index_urls_async([url])
         result = results[0]
@@ -264,7 +193,6 @@ class FastPipeline:
         return result
 
     async def _index_urls_async(self, urls: List[str]) -> List[Dict]:
-        """Crawl → extract → chunk → embed → store for a list of URLs."""
         results: List[Dict] = []
 
         cfg = self.config.crawler
@@ -301,22 +229,23 @@ class FastPipeline:
                 })
                 continue
 
-            # Content deduplication
             if self.content_cache:
                 if self.content_cache.is_duplicate(extracted.text):
                     existing = self.content_cache.get_existing(extracted.text)
-                    self.stats_data["duplicates_skipped"] += 1
-                    logger.info("Duplicate content for %s (same as %s)", crawl_result.url, existing["url"])
-                    results.append({
-                        "success": True,
-                        "url": crawl_result.url,
-                        "duplicate": True,
-                        "original_url": existing["url"],
-                        "doc_id": existing.get("doc_id", ""),
-                        "title": extracted.title,
-                        "chunks_count": 0,
-                    })
-                    continue
+                    existing_doc_id = existing.get("doc_id", "")
+                    if existing_doc_id and self.vector_store.get_document(existing_doc_id) is not None:
+                        self.stats_data["duplicates_skipped"] += 1
+                        logger.info("Duplicate content for %s (same as %s)", crawl_result.url, existing["url"])
+                        results.append({
+                            "success": True,
+                            "url": crawl_result.url,
+                            "duplicate": True,
+                            "original_url": existing["url"],
+                            "doc_id": existing_doc_id,
+                            "title": extracted.title,
+                            "chunks_count": 0,
+                        })
+                        continue
 
             doc_id = str(uuid.uuid4())
             chunks = chunk_text(
@@ -354,7 +283,6 @@ class FastPipeline:
 
             ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
 
-            # Store text in documents field (not crammed into metadata)
             self.vector_store.add(
                 vectors=vectors,
                 metadatas=metadatas,
@@ -390,7 +318,6 @@ class FastPipeline:
         skip_cached: bool = True,
         on_progress: Optional[Callable] = None,
     ) -> List[Dict]:
-        """Index multiple URLs concurrently. Skips already-cached URLs by default."""
         import time
 
         urls_to_process: List[str] = []
@@ -400,16 +327,20 @@ class FastPipeline:
             for url in urls:
                 if self.url_cache.is_cached(url):
                     cached_data = self.url_cache.get(url)
-                    cached_results.append({
-                        "success": True,
-                        "url": url,
-                        "cached": True,
-                        "title": cached_data.get("data", {}).get("title", "Cached"),
-                        "chunks_count": cached_data.get("data", {}).get("chunks", 0),
-                        "doc_id": cached_data.get("data", {}).get("doc_id", ""),
-                        "indexed_at": cached_data["cached_at"],
-                    })
-                    self.stats_data["urls_cached"] += 1
+                    doc_id = cached_data.get("data", {}).get("doc_id", "")
+                    if doc_id and self.vector_store.get_document(doc_id) is not None:
+                        cached_results.append({
+                            "success": True,
+                            "url": url,
+                            "cached": True,
+                            "title": cached_data.get("data", {}).get("title", "Cached"),
+                            "chunks_count": cached_data.get("data", {}).get("chunks", 0),
+                            "doc_id": doc_id,
+                            "indexed_at": cached_data["cached_at"],
+                        })
+                        self.stats_data["urls_cached"] += 1
+                    else:
+                        urls_to_process.append(url)
                 else:
                     urls_to_process.append(url)
         else:
@@ -456,7 +387,6 @@ class FastPipeline:
         return cached_results + new_results
 
     async def index_batch_async(self, urls: List[str], skip_cached: bool = True) -> List[Dict]:
-        """Async version of ``index_batch``."""
         urls_to_process: List[str] = []
         cached_results: List[Dict] = []
 
@@ -464,16 +394,20 @@ class FastPipeline:
             for url in urls:
                 if self.url_cache.is_cached(url):
                     cached_data = self.url_cache.get(url)
-                    cached_results.append({
-                        "success": True,
-                        "url": url,
-                        "cached": True,
-                        "title": cached_data.get("data", {}).get("title", "Cached"),
-                        "chunks_count": cached_data.get("data", {}).get("chunks", 0),
-                        "doc_id": cached_data.get("data", {}).get("doc_id", ""),
-                        "indexed_at": cached_data["cached_at"],
-                    })
-                    self.stats_data["urls_cached"] += 1
+                    doc_id = cached_data.get("data", {}).get("doc_id", "")
+                    if doc_id and self.vector_store.get_document(doc_id) is not None:
+                        cached_results.append({
+                            "success": True,
+                            "url": url,
+                            "cached": True,
+                            "title": cached_data.get("data", {}).get("title", "Cached"),
+                            "chunks_count": cached_data.get("data", {}).get("chunks", 0),
+                            "doc_id": doc_id,
+                            "indexed_at": cached_data["cached_at"],
+                        })
+                        self.stats_data["urls_cached"] += 1
+                    else:
+                        urls_to_process.append(url)
                 else:
                     urls_to_process.append(url)
         else:
@@ -495,10 +429,6 @@ class FastPipeline:
         self.stats_data["urls_processed"] += len(urls_to_process)
         return cached_results + new_results
 
-    # ------------------------------------------------------------------ #
-    # Web search (Phase 3)
-    # ------------------------------------------------------------------ #
-
     def search_web(
         self,
         query: str,
@@ -507,25 +437,6 @@ class FastPipeline:
         output_format: Literal["plain", "numbered", "structured"] = "numbered",
         max_context_words: Optional[int] = None,
     ) -> RetrievedContext:
-        """
-        Search the web → crawl top results → index → retrieve context.
-
-        One-liner to go from a question straight to LLM-ready context.
-
-        Args:
-            query: Natural language question.
-            max_results: Number of web search results to crawl.
-            limit: Number of chunks to retrieve.
-            output_format: Context format.
-            max_context_words: Truncate context to N words.
-
-        Returns:
-            RetrievedContext with .context_text, .as_messages(), etc.
-
-        Example:
-            >>> ctx = pipeline.search_web("latest python features")
-            >>> print(ctx.context_text)
-        """
         provider = self._get_search_provider()
         search_results = provider.search(query, max_results=max_results)
 
@@ -551,7 +462,6 @@ class FastPipeline:
         output_format: Literal["plain", "numbered", "structured"] = "numbered",
         max_context_words: Optional[int] = None,
     ) -> RetrievedContext:
-        """Async version of ``search_web``."""
         provider = self._get_search_provider()
         search_results = provider.search(query, max_results=max_results)
 
@@ -568,7 +478,6 @@ class FastPipeline:
                              max_context_words=max_context_words)
 
     def _get_search_provider(self):
-        """Get or auto-detect the web search provider."""
         if self.search_provider is not None:
             return self.search_provider
 
@@ -586,10 +495,6 @@ class FastPipeline:
                 "  pip install web-intelligence[search]"
             )
 
-    # ------------------------------------------------------------------ #
-    # Search & Retrieval
-    # ------------------------------------------------------------------ #
-
     def search(
         self,
         query: str,
@@ -597,18 +502,7 @@ class FastPipeline:
         where_filter: Optional[Dict] = None,
         min_score: float = 0.0,
     ) -> List[Dict]:
-        """
-        Raw semantic search. Returns ranked chunk dicts.
 
-        Args:
-            query: Natural language query.
-            limit: Max results.
-            where_filter: Metadata filter (e.g. ``{"url": "https://..."}``).
-            min_score: Minimum similarity (0–1).
-
-        Returns:
-            List of dicts with text, score, metadata.
-        """
         query_vector = self.embedder.embed(query)
         return self.vector_store.search(
             query_vector, limit=limit, where_filter=where_filter, min_score=min_score
@@ -623,29 +517,6 @@ class FastPipeline:
         where_filter: Optional[Dict] = None,
         min_score: float = 0.0,
     ) -> RetrievedContext:
-        """
-        Search and return LLM-ready context.
-
-        This is the main retrieval method. Returns a ``RetrievedContext`` you
-        can feed directly to any LLM.
-
-        Args:
-            query: Natural language question.
-            limit: Number of chunks to retrieve.
-            output_format: ``"plain"``, ``"numbered"``, or ``"structured"``.
-            max_context_words: Truncate context to N words.
-            where_filter: Metadata filter dict.
-            min_score: Minimum relevance score (0–1).
-
-        Returns:
-            RetrievedContext with ``.context_text``, ``.sources``,
-            ``.as_messages()``, ``.to_dict()``
-
-        Example:
-            >>> ctx = pipeline.retrieve("what is python")
-            >>> print(ctx.context_text)
-            >>> messages = ctx.as_messages()  # OpenAI-compatible
-        """
         limit = limit or self.config.search.default_limit
         max_words = max_context_words or self.config.search.max_context_words
 
@@ -668,7 +539,6 @@ class FastPipeline:
         where_filter: Optional[Dict] = None,
         min_score: float = 0.0,
     ) -> RetrievedContext:
-        """Async version of ``retrieve`` (useful in FastAPI handlers)."""
         return self.retrieve(
             query, limit=limit, output_format=output_format,
             max_context_words=max_context_words,
@@ -681,45 +551,25 @@ class FastPipeline:
         limit: int = 5,
         output_format: Literal["plain", "numbered", "structured"] = "plain",
     ) -> str:
-        """
-        Shorthand: returns just the context string for direct prompt injection.
-
-        Example:
-            >>> context = pipeline.get_context_for_llm("how does auth work")
-            >>> answer = my_llm(f"Context: {context}\\nQuestion: how does auth work")
-        """
         ctx = self.retrieve(query, limit=limit, output_format=output_format)
         return ctx.context_text
 
-    # ------------------------------------------------------------------ #
-    # Document management
-    # ------------------------------------------------------------------ #
-
     def list_documents(self) -> List[Dict]:
-        """List all indexed documents with metadata."""
         return self.vector_store.list_documents()
 
     def get_document(self, doc_id: str) -> Optional[Dict]:
-        """Get full text and chunks for a document."""
         return self.vector_store.get_document(doc_id)
 
     def delete_document(self, doc_id: str) -> bool:
-        """Delete a document and all its chunks from the store."""
         return self.vector_store.delete_document(doc_id)
 
     def delete_url(self, url: str) -> int:
-        """Delete all indexed content from a URL. Returns chunks deleted."""
         count = self.vector_store.delete_by_url(url)
         if self.url_cache:
             self.url_cache.delete(url)
         return count
 
-    # ------------------------------------------------------------------ #
-    # Stats & maintenance
-    # ------------------------------------------------------------------ #
-
     def stats(self) -> Dict:
-        """Return pipeline statistics."""
         stats = {
             "total_chunks_in_database": self.vector_store.count(),
             "total_documents": len(self.vector_store.list_documents()),
@@ -740,7 +590,6 @@ class FastPipeline:
         return stats
 
     def clear_all(self):
-        """Clear all indexed data, caches, and embeddings."""
         self.vector_store.clear()
         if self.url_cache:
             self.url_cache.clear()
@@ -757,7 +606,6 @@ class FastPipeline:
         logger.info("All data cleared")
 
     def clear_caches(self):
-        """Clear only caches (URL, content, embedding) — keeps indexed data."""
         if self.url_cache:
             self.url_cache.clear()
         if self.content_cache:

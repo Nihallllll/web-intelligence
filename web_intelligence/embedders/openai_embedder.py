@@ -1,9 +1,3 @@
-"""
-OpenAI embedding backend (cloud-based, requires API key).
-
-Install:  pip install openai
-"""
-
 from __future__ import annotations
 
 import logging
@@ -13,7 +7,6 @@ from ..cache import EmbeddingCache
 
 logger = logging.getLogger("web_intelligence.embedders.openai")
 
-# Dimensions for known OpenAI models
 _KNOWN_DIMS = {
     "text-embedding-3-small": 1536,
     "text-embedding-3-large": 3072,
@@ -22,17 +15,6 @@ _KNOWN_DIMS = {
 
 
 class OpenAIEmbedder:
-    """
-    Embedding backend using the OpenAI Embeddings API.
-
-    Args:
-        api_key: OpenAI API key.  Falls back to ``OPENAI_API_KEY`` env var.
-        model_name: Model name (default ``text-embedding-3-small``).
-        base_url: Optional custom base URL (for Azure OpenAI, proxies, etc.).
-        use_cache: Persist embeddings to disk.
-        cache_dir: Directory for the embedding cache.
-    """
-
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -60,17 +42,12 @@ class OpenAIEmbedder:
         self.model_name: str = model_name
         self.dimension: int = _KNOWN_DIMS.get(model_name, 1536)
 
-        # Cache
         self.use_cache = use_cache
         self.cache: Optional[EmbeddingCache] = EmbeddingCache(cache_dir=cache_dir) if use_cache else None
         self._cache_hits = 0
         self._cache_misses = 0
 
         logger.info("OpenAI embedder ready (model=%s, dim=%d)", model_name, self.dimension)
-
-    # ------------------------------------------------------------------ #
-    # Core API
-    # ------------------------------------------------------------------ #
 
     def embed(self, text: str) -> List[float]:
         if self.cache:
@@ -117,7 +94,6 @@ class OpenAIEmbedder:
         if not texts_to_embed:
             return results
 
-        # OpenAI accepts up to 2048 inputs per request
         for start in range(0, len(texts_to_embed), batch_size):
             batch = texts_to_embed[start : start + batch_size]
             resp = self._client.embeddings.create(input=batch, model=self.model_name)
@@ -129,10 +105,6 @@ class OpenAIEmbedder:
                     self.cache.set(texts_to_embed[start + j], item.embedding)
 
         return results
-
-    # ------------------------------------------------------------------ #
-    # Cache management
-    # ------------------------------------------------------------------ #
 
     def get_cache_stats(self) -> Dict:
         total = self._cache_hits + self._cache_misses
